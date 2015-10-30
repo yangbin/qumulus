@@ -1,0 +1,8 @@
+[package]
+name = "qumulus"
+version = "0.1.0"
+authors = ["Kwok Yang Bin <yangbin@fragnetics.com>"]
+
+[dependencies]
+serde = "*"
+serde_json = "*"
