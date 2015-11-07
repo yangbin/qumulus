@@ -1,6 +1,7 @@
 extern crate serde;
 extern crate serde_json;
 
+pub mod client;
 pub mod node;
 pub mod server;
 
