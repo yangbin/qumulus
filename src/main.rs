@@ -13,10 +13,9 @@ fn main() {
 
     manager.load("root");
 
-    let server = server::Server::new(8888);
+    let server = server::Server::new(manager.clone(), 8888);
 
     println!("root loaded: {}", manager.zone_loaded("root"));
-    println!("moo loaded: {}", manager.zone_loaded("moo"));
 
     server.listen();
 
