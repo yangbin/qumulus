@@ -3,15 +3,17 @@
 use serde_json;
 use serde_json::Value;
 
+use path::Path;
+
 #[derive(Debug, PartialEq)]
 pub struct Command {
     call: Call,
-    path: Vec<String>,
+    path: Path,
     params: Value
 }
 
 #[derive(Debug, PartialEq)]
-enum Call {
+pub enum Call {
     Bind,
     Read,
     Write
@@ -46,7 +48,7 @@ impl Command {
 
         Ok(Command {
             call: call,
-            path: path_string,
+            path: Path { path: path_string },
             params: params
         })
     }
@@ -68,7 +70,7 @@ fn test_from_json() {
 
     let result = Command::from_json(r#"[ "bind", [ "moo" ], 42 ]"#).unwrap();
     assert_eq!(result.call, Call::Bind);
-    assert_eq!(result.path, vec![ "moo" ]);
+    assert_eq!(result.path, Path::new(vec!["moo".to_string()]));
 
     let result = Command::from_json(r#"[ "bind", [ "moo", 42 ], 42 ]"#);
     assert!(result.is_err());
