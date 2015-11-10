@@ -3,8 +3,11 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 
+use command::Command;
+use path::Path;
+
 pub struct Manager {
-    active: RwLock<BTreeMap<String, bool>>
+    active: RwLock<BTreeMap<Path, bool>>
 }
 
 impl Manager {
@@ -12,19 +15,23 @@ impl Manager {
         Arc::new(Manager { active: RwLock::new(BTreeMap::new()) })
     }
 
-    pub fn load(&self, zone_name: &str) {
-        if self.zone_loaded(zone_name) {
+    pub fn load(&self, path: Path) {
+        if self.zone_loaded(&path) {
             return;
         }
 
         let mut active = self.active.write().unwrap();
 
-        active.insert(zone_name.to_string(), true);
+        active.insert(path, true);
     }
 
-    pub fn zone_loaded(&self, zone_name: &str) -> bool {
+    pub fn zone_loaded(&self, path: &Path) -> bool {
         let active = self.active.read().unwrap();
 
-        return active.contains_key(zone_name);
+        active.contains_key(path)
+    }
+
+    pub fn dispatch(&self, _command: Command) -> bool {
+        false
     }
 }

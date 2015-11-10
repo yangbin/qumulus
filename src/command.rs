@@ -7,9 +7,9 @@ use path::Path;
 
 #[derive(Debug, PartialEq)]
 pub struct Command {
-    call: Call,
-    path: Path,
-    params: Value
+    pub call: Call,
+    pub path: Path,
+    pub params: Value
 }
 
 #[derive(Debug, PartialEq)]

@@ -7,6 +7,7 @@ use std::thread;
 use std::sync::Arc;
 use std::sync::mpsc;
 
+use command::Command;
 use manager::Manager;
 
 pub struct Client {
@@ -46,11 +47,16 @@ impl Client {
             println!("{:?}", line);
             match line {
                 Ok(line) => {
-                    let loaded = self.manager.zone_loaded(&line);
-
-                    tx.send(loaded.to_string()).unwrap();
-
-                    // TODO: decode and dispatch to zone
+                    match Command::from_json(&line) {
+                        Ok(command) => {
+                            let loaded = self.manager.zone_loaded(&command.path);
+                            tx.send(loaded.to_string()).unwrap();
+                            self.manager.dispatch(command);
+                        },
+                        Err(e) => {
+                            tx.send(e).unwrap();
+                        }
+                    }
                 },
                 Err(e) => {
                     println!("Connection error: {}", e);
