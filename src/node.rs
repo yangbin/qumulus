@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 
-use serde_json;
 use serde_json::Value;
 
 #[derive(Debug, PartialEq)]
@@ -70,6 +69,9 @@ macro_rules! map(
         }
     };
 );
+
+#[cfg(test)]
+use serde_json;
 
 #[test]
 fn test_expand() {
