@@ -9,6 +9,14 @@ impl Path {
     pub fn new(path: Vec<String>) -> Path {
         Path { path: path }
     }
+
+    pub fn push(&mut self, component: &String) {
+        self.path.push(component.clone());
+    }
+
+    pub fn pop(&mut self) -> Option<String> {
+        self.path.pop()
+    }
 }
 
 macro_rules! path {
@@ -29,4 +37,19 @@ macro_rules! path {
 fn test_macro() {
     assert_eq!(Path { path: vec!["root".to_string()] }, path!(root));
     assert_eq!(Path { path: vec!["root".to_string(), "moo".to_string()] }, path!(root.moo));
+}
+
+fn test_push() {
+    let mut p = path!(root);
+
+    p.push(&"moo".to_string());
+
+    assert_eq!(p, path!(root.moo));
+}
+
+fn test_pop() {
+    let mut p = path!(root.moo.cow);
+
+    assert_eq!(p.pop(), Some("cow".to_string()));
+    assert_eq!(p.pop(), Some("moo".to_string()));
 }

@@ -8,13 +8,15 @@ use serde_json::Value;
 use command::Command;
 use command::Call;
 use node::Node;
+use node::Vis;
 use path::Path;
 
 // TODO: Consider Zone as a thread
 
 #[derive(Debug)]
 pub struct ZoneData {
-    node: Node // Mergeable data for this Zone
+    node: Node, // Mergeable data for this Zone
+    vis: Vis    // Visibility of this Zone through ancestors
 }
 
 pub struct Zone {
@@ -31,7 +33,8 @@ impl Zone {
         Zone {
             path: path,
             data: RwLock::new(ZoneData {
-                node: Node::expand(&Value::Null, 0)
+                node: Node::expand(&Value::Null, 0),
+                vis: Default::default()
             })
         }
     }
@@ -53,7 +56,14 @@ impl Zone {
 
         let mut data = self.data.write().unwrap();
 
-        // TODO: merge data with node
+        {
+            let ZoneData { ref mut node, ref mut vis } = *data;
+
+            let (updates, external) = node.merge(&mut diff, *vis, *vis);
+        }
+
+        println!("Data written, node is now: {:?}", data.node);
+
         // TODO: updates goes to notify
         // TODO: external goes to external nodes
         // TODO: diff goes to replicas
