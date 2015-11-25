@@ -5,9 +5,10 @@ use std::sync::{Arc, RwLock};
 
 use command::Command;
 use path::Path;
+use zone::Zone;
 
 pub struct Manager {
-    active: RwLock<BTreeMap<Path, bool>>
+    active: RwLock<BTreeMap<Path, Arc<Zone>>>
 }
 
 impl Manager {
@@ -22,7 +23,9 @@ impl Manager {
 
         let mut active = self.active.write().unwrap();
 
-        active.insert(path, true);
+        let zone = Arc::new(Zone::new(path.clone()));
+
+        active.insert(path, zone);
     }
 
     pub fn zone_loaded(&self, path: &Path) -> bool {
@@ -31,7 +34,25 @@ impl Manager {
         active.contains_key(path)
     }
 
-    pub fn dispatch(&self, _command: Command) -> bool {
-        false
+    pub fn dispatch(&self, command: Command) -> bool {
+        let zone = self.find_nearest(&command.path);
+
+        zone.dispatch(command);
+
+        false // TODO actually return result
+    }
+
+    pub fn find_nearest(&self, path: &Path) -> Arc<Zone> {
+        let active = self.active.read().unwrap();
+
+        // TODO actually find the nearest zone
+        let zone = active.get(&Path::new(vec!["root".to_string()]));
+
+        match zone {
+            Some(zone) => zone.clone(),
+            None => {
+                unimplemented!();
+            }
+        }
     }
 }

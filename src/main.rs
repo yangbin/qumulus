@@ -3,11 +3,12 @@ extern crate serde_json;
 extern crate time;
 
 pub mod client;
+pub mod command;
 pub mod manager;
 pub mod node;
 pub mod path;
 pub mod server;
-pub mod command;
+pub mod zone;
 
 fn main() {
     println!("Qumulus v0.0.1");

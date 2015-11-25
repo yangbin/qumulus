@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use serde_json::Value;
 
 #[derive(Debug, PartialEq)]
-struct Node {
+pub struct Node {
     created: u64,
     updated: u64,
     deleted: u64,
