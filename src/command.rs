@@ -2,6 +2,7 @@
 
 use serde_json;
 use serde_json::Value;
+use time;
 
 use path::Path;
 
@@ -9,7 +10,8 @@ use path::Path;
 pub struct Command {
     pub call: Call,
     pub path: Path,
-    pub params: Value
+    pub params: Value,
+    pub timestamp: u64
 }
 
 #[derive(Debug, PartialEq)]
@@ -49,7 +51,8 @@ impl Command {
         Ok(Command {
             call: call,
             path: Path { path: path_string },
-            params: params
+            params: params,
+            timestamp: time::precise_time_ns()
         })
     }
 }

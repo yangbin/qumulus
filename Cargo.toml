@@ -6,3 +6,4 @@ authors = ["Kwok Yang Bin <yangbin@fragnetics.com>"]
 [dependencies]
 serde = "*"
 serde_json = "*"
+time = "*"
