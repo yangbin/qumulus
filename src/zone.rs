@@ -39,12 +39,13 @@ impl Zone {
         }
     }
 
-    pub fn dispatch(&self, command: Command) {
+    pub fn dispatch(&self, command: Command) -> Value {
         match command.call {
             Call::Bind => unimplemented!(),
             Call::Read => unimplemented!(),
             Call::Write => {
                 self.write(command.path, command.timestamp, command.params);
+                Value::Null
             }
         }
     }

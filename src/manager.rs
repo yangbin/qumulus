@@ -3,6 +3,8 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 
+use serde_json::Value;
+
 use command::Command;
 use path::Path;
 use zone::Zone;
@@ -34,12 +36,10 @@ impl Manager {
         active.contains_key(path)
     }
 
-    pub fn dispatch(&self, command: Command) -> bool {
+    pub fn dispatch(&self, command: Command) -> Value {
         let zone = self.find_nearest(&command.path);
 
-        zone.dispatch(command);
-
-        false // TODO actually return result
+        zone.dispatch(command)
     }
 
     pub fn find_nearest(&self, path: &Path) -> Arc<Zone> {

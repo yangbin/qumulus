@@ -7,6 +7,8 @@ use std::thread;
 use std::sync::Arc;
 use std::sync::mpsc;
 
+use serde_json;
+
 use command::Command;
 use manager::Manager;
 
@@ -35,7 +37,7 @@ impl Client {
         // Asynchronously write data to client
         self.create_writer_thread(rx);
 
-        tx.send("// hello!".to_string()).unwrap();
+        tx.send("{ \"hello!\": 1 }".to_string()).unwrap();
 
         // Asynchronously ping
         pinger(tx.clone());
@@ -44,17 +46,17 @@ impl Client {
 
         // Read loop
         for line in reader.lines() {
-            println!("{:?}", line);
             match line {
                 Ok(line) => {
                     match Command::from_json(&line) {
                         Ok(command) => {
-                            let loaded = self.manager.zone_loaded(&command.path);
-                            tx.send(loaded.to_string()).unwrap();
-                            self.manager.dispatch(command);
+                            let id = command.id;
+                            let result = self.manager.dispatch(command);
+
+                            tx.send("[".to_string() + &id.to_string() + "," + &serde_json::to_string(&result).unwrap() + "]").unwrap();
                         },
                         Err(e) => {
-                            tx.send(e).unwrap();
+                            tx.send("[0,\"error\",\"".to_string() + &e + "\"]").unwrap();
                         }
                     }
                 },
@@ -87,7 +89,7 @@ fn pinger(tx: mpsc::Sender<String>) {
     thread::spawn(move|| {
         loop {
             thread::sleep_ms(5000);
-            tx.send("// ping!".to_string()).unwrap();
+            tx.send("{ \"ping\": 1 }".to_string()).unwrap();
         }
     });
 }
