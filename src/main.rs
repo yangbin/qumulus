@@ -15,7 +15,7 @@ fn main() {
 
     let manager = manager::Manager::new();
 
-    let path = path::Path::new( vec!["root".to_string()] );
+    let path = path::Path::new(vec![]);
     manager.load(path.clone());
 
     let server = server::Server::new(manager.clone(), 8888);

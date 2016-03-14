@@ -46,7 +46,7 @@ impl Manager {
         let active = self.active.read().unwrap();
 
         // TODO actually find the nearest zone
-        let zone = active.get(&Path::new(vec!["root".to_string()]));
+        let zone = active.get(&Path::new(vec![]));
 
         match zone {
             Some(zone) => zone.clone(),
