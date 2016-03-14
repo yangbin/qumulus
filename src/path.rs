@@ -39,6 +39,7 @@ fn test_macro() {
     assert_eq!(Path { path: vec!["root".to_string(), "moo".to_string()] }, path!(root.moo));
 }
 
+#[test]
 fn test_push() {
     let mut p = path!(root);
 
@@ -47,6 +48,7 @@ fn test_push() {
     assert_eq!(p, path!(root.moo));
 }
 
+#[test]
 fn test_pop() {
     let mut p = path!(root.moo.cow);
 
