@@ -11,6 +11,5 @@ cargo run
 telnet localhost 8888
 
 [ 1, "write", ["root", "moo", "cow"], 42 ]
-[ 2, "write", ["root", "moo", "moo"], { "moo": { "cow": 42 } } ]
+[ 2, "write", [], { "moo": { "cow": 42 } } ]
 ```
-

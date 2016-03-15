@@ -36,7 +36,23 @@ pub struct External {
     node: Node
 }
 
+macro_rules! map(
+    { $($key:expr => $value:expr),+ } => {
+        {
+            let mut m = BTreeMap::new();
+            $(
+                m.insert($key, $value);
+            )+
+            m
+        }
+    };
+);
+
 impl Vis {
+    pub fn new(updated: u64, deleted: u64) -> Vis {
+        Vis { updated: updated, deleted: deleted }
+    }
+
     fn is_visible(&self) -> bool {
         self.updated > self.deleted
     }
@@ -112,6 +128,24 @@ impl Node {
                 vis: Vis { updated: timestamp, ..Default::default() },
                 value: data.clone(),
                 ..Default::default()
+            }
+        }
+    }
+
+    pub fn expand_from(path: &[String], data: &Value, timestamp: u64) -> Node {
+        // TODO: make iterative
+        match path.len() {
+            0 => Node::expand(data, timestamp),
+            _ => {
+                match path.split_first() {
+                    Some((first, rest)) => Node {
+                        keys: Some(map! {
+                            first.clone() => Node::expand_from(rest, data, timestamp)
+                        }),
+                        ..Default::default()
+                    },
+                    None => Default::default()
+                }
             }
         }
     }
@@ -328,18 +362,6 @@ impl Update {
             self.keys.is_none()
     }
 }
-
-macro_rules! map(
-    { $($key:expr => $value:expr),+ } => {
-        {
-            let mut m = BTreeMap::new();
-            $(
-                m.insert($key, $value);
-            )+
-            m
-        }
-    };
-);
 
 #[cfg(test)]
 use serde_json;

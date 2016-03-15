@@ -31,10 +31,13 @@ pub struct Zone {
 impl Zone {
     pub fn new(path: Path) -> Zone {
         Zone {
-            path: path,
+            path: path.clone(),
             data: RwLock::new(ZoneData {
                 node: Node::expand(&Value::Null, 0),
-                vis: Default::default()
+                vis: match path.path.len() {
+                    0 => Vis::new(1, 0),
+                    _ => Default::default()
+                }
             })
         }
     }
@@ -53,7 +56,7 @@ impl Zone {
     /// Writes value(s) to the node at `path` at time `ts`
     pub fn write(&self, path: Path, ts: u64, value: Value) {
         // TODO verify path
-        let mut diff = Node::expand(&value, ts);
+        let mut diff = Node::expand_from(&path.path[..], &value, ts);
 
         let mut data = self.data.write().unwrap();
 
