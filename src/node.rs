@@ -182,17 +182,45 @@ impl Node {
                 ) -> (Option<Update>, Vec<External>) {
         let mut externals: Vec<External> = vec![];
 
-        let mut path = Path::new(vec![]);
+        let mut stack = Path::new(vec![]);
 
-        let update = merge(&mut path, self, diff, vis_old, vis_new, &mut externals);
+        let update = merge(&mut stack, self, diff, vis_old, vis_new, &mut externals);
+
+        (update, externals)
+    }
+
+    /// Read data from node
+    ///
+    /// Returns user-visible data at `path`.
+    pub fn read(&self, vis: Vis, path: &Path) -> (Option<Update>, Vec<External>) {
+        let mut externals: Vec<External> = vec![];
+
+        let mut stack = Path::new(vec![]);
+
+        let update = read(&mut stack, self, vis, path, 0, &mut externals);
 
         (update, externals)
     }
 }
 
+impl Update {
+    pub fn to_json(&self) -> Value {
+        let value = self.new.clone().unwrap_or(Value::Null);
+
+        let keys = match self.keys {
+            None => Value::Null,
+            Some(ref keys) => Value::Object(keys.iter().map(|(k, v)|
+                (k.clone(), v.to_json())
+            ).collect())
+        };
+
+        Value::Array(vec![value, keys])
+    }
+}
+
 /// Internal merge implementation function. Function is recursive and tracks `path`.
 fn merge(
-    path: &mut Path,
+    stack: &mut Path,
     node: &mut Node,
     diff: &mut Node,
     mut vis_old: Vis, // Old visibility of parent node
@@ -237,7 +265,7 @@ fn merge(
     else { // same timesstamp
         if diff.value == node.value {
             // TODO: This isn't so good
-            println!("Value conflict: {:?} - {:?} -> {:?}", path, node.value, diff.value);
+            println!("Value conflict: {:?} - {:?} -> {:?} t+{:?}", stack, node.value, diff.value, diff.vis.updated);
         }
     }
 
@@ -280,11 +308,11 @@ fn merge(
         if let Some(ref mut node_keys) = node.keys {
             // Uncloak / delete children
             for (k, node_child) in node_keys.iter_mut() {
-                path.push(k);
+                stack.push(k);
 
-                let child_diff = merge(path, node_child, &mut p_node, vis_old, vis_new, externals);
+                let child_diff = merge(stack, node_child, &mut p_node, vis_old, vis_new, externals);
 
-                path.pop();
+                stack.pop();
 
                 update.add_child(k, child_diff);
             }
@@ -303,30 +331,30 @@ fn merge(
             // TODO: unnecessary copy if key exists
             let entry = node_keys.entry(k.clone());
 
-            path.push(k);
+            stack.push(k);
 
             match entry {
                 Entry::Occupied(mut entry) => {
                     // Existing node exists, so recursively merge
-                    let child_diff = merge(path, entry.get_mut(), diff_child, vis_old, vis_new, externals);
-                    update.add_child(k, child_diff);
+                    let child_update = merge(stack, entry.get_mut(), diff_child, vis_old, vis_new, externals);
+                    update.add_child(k, child_update);
                 },
                 Entry::Vacant(entry) => {
                     // No existing node, merge to empty node
                     let mut node_child: Node = Default::default();
 
-                    let child_diff = merge(path, &mut node_child, diff_child, vis_old, vis_new, externals);
+                    let child_update = merge(stack, &mut node_child, diff_child, vis_old, vis_new, externals);
 
-                    if child_diff.is_some() {
+                    if child_update.is_some() {
                         // If there are actual changes, keep node child
                         entry.insert(node_child);
                     }
 
-                    update.add_child(k, child_diff);
+                    update.add_child(k, child_update);
                 }
             }
 
-            path.pop();
+            stack.pop();
         }
     }
 
@@ -335,6 +363,76 @@ fn merge(
     }
 
     // TODO: throw node / diff / update away if empty
+
+    return match update.is_noop() {
+        true => None,
+        false => Some(update)
+    };
+}
+
+/// Internal read implementation. `stack` tracks depth of recursion.
+fn read(stack: &mut Path,
+        node: &Node,
+        mut vis: Vis, // Visibility of parent node
+        path: &Path,
+        pos: usize,
+        externals: &mut Vec<External>)
+-> Option<Update> {
+    // Effective visibility of this node
+    vis.descend(&node.vis);
+
+    let mut update: Update = Default::default();
+
+    let pos = stack.len();
+
+    if pos >= path.len() {
+        // Get value at this node
+        if vis.is_visible() {
+            update.visible = Some(vis.is_visible());
+            update.new = Some(node.value.clone());
+        }
+    }
+    else {
+        // Match / get child values
+        let ref part = path.path[pos];
+
+        if let Some(ref node_keys) = node.keys {
+            if &*part == "*" {
+                // Match all
+                for (k, node_child) in node_keys.iter() {
+                    stack.push(k);
+
+                    let child_update = read(stack, node_child, vis, &path, pos + 1, externals);
+
+                    stack.pop();
+
+                    update.add_child(k, child_update);
+                }
+            }
+            else {
+                // Match one
+                match node_keys.get(part) {
+                    Some(node_child) => {
+                        stack.push(part);
+
+                        let child_update = read(stack, node_child, vis, &path, pos + 1, externals);
+
+                        stack.pop();
+
+                        update.add_child(part, child_update);
+                    },
+                    None => {
+                        // TODO: probably have to return an undefined
+                    }
+                }
+            }
+        }
+    }
+
+    // Delegated data
+    if node.delegated & 1 > 0 {
+        unimplemented!(); // TODO throw everything we have to external node
+    }
 
     return match update.is_noop() {
         true => None,

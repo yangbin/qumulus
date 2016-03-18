@@ -45,16 +45,32 @@ impl Zone {
     pub fn dispatch(&self, command: Command) -> Value {
         match command.call {
             Call::Bind => unimplemented!(),
-            Call::Read => unimplemented!(),
+            Call::Read => {
+                self.read(&command.path)
+            },
             Call::Write => {
-                self.write(command.path, command.timestamp, command.params);
+                self.write(&command.path, command.timestamp, command.params);
                 Value::Null
             }
         }
     }
 
+    /// Read value(s)
+    pub fn read(&self, path: &Path) -> Value {
+        // TODO verify path
+
+        let data = self.data.read().unwrap();
+
+        let read = data.node.read(data.vis, path);
+
+        let (update, _) = read;
+        // TODO: return externals too
+
+        update.map_or(Value::Null, |u| u.to_json())
+    }
+
     /// Writes value(s) to the node at `path` at time `ts`
-    pub fn write(&self, path: Path, ts: u64, value: Value) {
+    pub fn write(&self, path: &Path, ts: u64, value: Value) {
         // TODO verify path
         let mut diff = Node::expand_from(&path.path[..], &value, ts);
 
@@ -63,13 +79,13 @@ impl Zone {
         {
             let ZoneData { ref mut node, ref mut vis } = *data;
 
-            let (updates, external) = node.merge(&mut diff, *vis, *vis);
+            let (updates, _) = node.merge(&mut diff, *vis, *vis);
         }
 
         println!("Data written, node is now: {:?}", data.node);
 
         // TODO: updates goes to notify
-        // TODO: external goes to external nodes
+        // TODO: externals goes to external nodes
         // TODO: diff goes to replicas
     }
 }

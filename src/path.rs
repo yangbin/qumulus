@@ -11,11 +11,16 @@ impl Path {
     }
 
     pub fn push(&mut self, component: &String) {
+        // TODO: unncessary copy
         self.path.push(component.clone());
     }
 
     pub fn pop(&mut self) -> Option<String> {
         self.path.pop()
+    }
+
+    pub fn len(&self) -> usize {
+        self.path.len()
     }
 }
 
