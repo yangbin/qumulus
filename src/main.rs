@@ -20,11 +20,15 @@ fn main() {
     let path = path::Path::new(vec![]);
     manager.load(path.clone());
 
-    let server = server::Server::new(manager.clone(), 8888);
+    let port = std::env::var("PORT").unwrap_or("".to_string()).parse().unwrap_or(8888);
+
+    let server = server::Server::new(manager.clone(), port);
 
     println!("root loaded: {}", manager.zone_loaded(&path));
 
     server.listen();
+
+    println!("listening on port: {}", port);
 
     loop {
         std::thread::park();

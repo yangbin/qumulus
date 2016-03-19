@@ -64,6 +64,7 @@ impl Zone {
         let read = data.node.read(data.vis, path);
 
         let (update, _) = read;
+
         // TODO: return externals too
 
         update.map_or(Value::Null, |u| u.to_json())
