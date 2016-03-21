@@ -51,7 +51,7 @@ impl Client {
                     match Command::from_json(&line) {
                         Ok(command) => {
                             let id = command.id;
-                            let result = self.manager.dispatch(command);
+                            let result = self.manager.dispatch(command, &tx);
 
                             tx.send("[".to_string() + &id.to_string() + "," + &serde_json::to_string(&result).unwrap() + "]").unwrap();
                         },

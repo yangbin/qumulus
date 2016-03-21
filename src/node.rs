@@ -249,11 +249,17 @@ fn merge(
     // of this or child nodes may have changed.
     let mut propagate: Option<Node> = None;
 
+    let mut changed = false; // set to true of value changes (ignoring vis)
+
     // Merge value at node
 
     if diff.vis.updated > node.vis.updated {
         // timestamp newer, use updated value
-        node.value = diff.value.clone();
+        if node.value != diff.value {
+            node.value = diff.value.clone();
+            changed = true;
+        }
+
         node.vis.updated = diff.vis.updated;
         propagate = Some(Default::default());
     }
@@ -295,12 +301,28 @@ fn merge(
     // "New" effective visibility of this node
     vis_new.descend(&node.vis);
 
-    if vis_old.is_visible() != vis_new.is_visible() {
-        update.visible = Some(vis_new.is_visible());
-        update.new = Some(node.value.clone());
-    }
-    else {
-        update.old = None;
+    let old_vis = vis_old.is_visible();
+    let new_vis = vis_new.is_visible();
+
+    match (old_vis, new_vis) {
+        (false, false) => {
+            update.old = None;
+        },
+        (false, true)  => {
+            update.new = Some(node.value.clone());
+            update.visible = Some(true);
+        },
+        (true, false) => {
+            update.visible = Some(false);
+        },
+        (true, true)  => {
+            if changed {
+                update.new = Some(node.value.clone());
+            }
+            else {
+                update.old = None;
+            }
+        }
     }
 
     // Propagate uncloaks / deletes

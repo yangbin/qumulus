@@ -2,13 +2,16 @@
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
+use std::sync::mpsc::Sender;
 
 use serde_json::Value;
 
 use command::Command;
 use command::Call;
+use listener::Listener;
 use node::Node;
 use node::Vis;
+use node::Update;
 use path::Path;
 
 // TODO: Consider Zone as a thread
@@ -20,12 +23,12 @@ pub struct ZoneData {
 }
 
 pub struct Zone {
-    path: Path,            // Path to this Zone
-    data: RwLock<ZoneData> // 'Atomic' data for this Zone
+    path: Path,                      // Path to this Zone
+    data: RwLock<ZoneData>,          // 'Atomic' data for this Zone
+    listeners: RwLock<Vec<Listener>> // List of binds
     // TODO: size: u64,
     // TODO: prefixes: Option<BTreeMap<String, Node>>
     // TODO: replicas: Vec<Replicas>
-    // TODO: listeners: Vec<Listeners>
 }
 
 impl Zone {
@@ -38,13 +41,16 @@ impl Zone {
                     0 => Vis::new(1, 0),
                     _ => Default::default()
                 }
-            })
+            }),
+            listeners: RwLock::new(vec![])
         }
     }
 
-    pub fn dispatch(&self, command: Command) -> Value {
+    pub fn dispatch(&self, command: Command, tx: &Sender<String>) -> Value {
         match command.call {
-            Call::Bind => unimplemented!(),
+            Call::Bind => {
+                self.bind(&command.path, tx)
+            },
             Call::Read => {
                 self.read(&command.path)
             },
@@ -53,6 +59,14 @@ impl Zone {
                 Value::Null
             }
         }
+    }
+
+    /// Bind value(s)
+    pub fn bind(&self, path: &Path, tx: &Sender<String>) -> Value {
+        // TODO verify path
+
+        self.sub(path, tx);
+        self.read(path)
     }
 
     /// Read value(s)
@@ -77,16 +91,32 @@ impl Zone {
 
         let mut data = self.data.write().unwrap();
 
-        {
+        let (update, _) = {
             let ZoneData { ref mut node, ref mut vis } = *data;
 
-            let (updates, _) = node.merge(&mut diff, *vis, *vis);
+            node.merge(&mut diff, *vis, *vis)
+        };
+
+        if let Some(update) = update {
+            self.notify(&update);
         }
-
-        println!("Data written, node is now: {:?}", data.node);
-
-        // TODO: updates goes to notify
         // TODO: externals goes to external nodes
         // TODO: diff goes to replicas
+    }
+
+    fn notify(&self, update: &Update) {
+        let listeners = self.listeners.read().unwrap();
+
+        for listener in &*listeners {
+            listener.update(update);
+        }
+    }
+
+    fn sub(&self, path: &Path, tx: &Sender<String>) {
+        let mut listeners = self.listeners.write().unwrap();
+
+        let listener = Listener::new(path, tx);
+
+        listeners.push(listener);
     }
 }

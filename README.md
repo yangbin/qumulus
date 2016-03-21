@@ -10,10 +10,11 @@ cargo run
 
 telnet localhost 8888
 
-[ 1, "write", ["root", "moo", "cow"], 42 ]
-[ 2, "write", [], { "moo": { "cow": 42 } } ]
-[ 3, "read", ["moo", "cow"], {} ]
-[ 4, "read", ["root", "moo", "moo"], {} ]
-[ 5, "write", [], 42 ]
-[ 6, "read", [], {} ]
+[ 1, "write", ["moo", "cow"], 42 ]
+[ 2, "read", ["moo", "cow"], {} ]
+[ 3, "write", [], { "moo": { "cow": 42 } } ]
+[ 4, "read", ["moo", "cow"], {} ]
+[ 5, "read", ["moo", "moo"], {} ]
+[ 6, "bind", ["moo", "cow"], {} ]
+[ 7, "write", ["moo", "cow"], "moo" ]
 ```
