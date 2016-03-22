@@ -6,6 +6,7 @@ use std::io::{BufReader, BufWriter};
 use std::thread;
 use std::sync::Arc;
 use std::sync::mpsc;
+use std::time::Duration;
 
 use serde_json;
 
@@ -88,7 +89,7 @@ impl Client {
 fn pinger(tx: mpsc::Sender<String>) {
     thread::spawn(move|| {
         loop {
-            thread::sleep_ms(5000);
+            thread::sleep(Duration::from_secs(5000));
             tx.send("{ \"ping\": 1 }".to_string()).unwrap();
         }
     });
