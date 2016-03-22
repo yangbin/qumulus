@@ -426,16 +426,15 @@ fn read(stack: &mut Path,
 
     let mut update: Update = Default::default();
 
-    let pos = stack.len();
-
-    if pos >= path.len() {
+    if stack.len() >= path.len() {
         // Get value at this node
         if vis.is_visible() {
             update.visible = Some(vis.is_visible());
             update.new = Some(node.value.clone());
         }
     }
-    else {
+
+    if pos < path.len() {
         // Match / get child values
         let ref part = path.path[pos];
 
@@ -446,6 +445,19 @@ fn read(stack: &mut Path,
                     stack.push(k);
 
                     let child_update = read(stack, node_child, vis, &path, pos + 1, externals);
+
+                    stack.pop();
+
+                    update.add_child(k, child_update);
+                }
+            }
+            else if &*part == "**" {
+                // Match all recursively
+                for (k, node_child) in node_keys.iter() {
+                    stack.push(k);
+
+                    // don't advance path position
+                    let child_update = read(stack, node_child, vis, &path, pos, externals);
 
                     stack.pop();
 

@@ -17,5 +17,7 @@ telnet localhost 8888
 [ 5, "read", ["moo", "moo"], {} ]
 [ 6, "bind", ["moo", "cow"], {} ]
 [ 7, "write", ["moo", "cow"], "moo" ]
-[ 8, "kill", ["moo", "cow"], null ]
+[ 8, "read", ["*"], null ]
+[ 9, "read", ["**"], null ]
+[ 10, "kill", ["moo", "cow"], null ]
 ```
