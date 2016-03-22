@@ -18,6 +18,7 @@ pub struct Command {
 #[derive(Debug, PartialEq)]
 pub enum Call {
     Bind,
+    Kill,
     Read,
     Write
 }
@@ -45,6 +46,7 @@ impl Command {
 
         let call = match call {
             "bind" => Call::Bind,
+            "kill" => Call::Kill,
             "read" => Call::Read,
             "write" => Call::Write,
             _ => return Err("Bad call".to_string())

@@ -51,6 +51,10 @@ impl Zone {
             Call::Bind => {
                 self.bind(&command.path, tx)
             },
+            Call::Kill => {
+                self.kill(&command.path, command.timestamp);
+                Value::Null
+            }
             Call::Read => {
                 self.read(&command.path)
             },
@@ -67,6 +71,27 @@ impl Zone {
 
         self.sub(path, tx);
         self.read(path)
+    }
+
+    /// Kill value(s)
+    pub fn kill(&self, path: &Path, ts: u64) {
+        let node = Node::delete(ts);
+
+        let mut diff = node.prepend_path(&path.path);
+
+        let mut data = self.data.write().unwrap();
+
+        let (update, _) = {
+            let ZoneData { ref mut node, ref mut vis } = *data;
+
+            node.merge(&mut diff, *vis, *vis)
+        };
+
+        if let Some(update) = update {
+            self.notify(&update);
+        }
+        // TODO: externals goes to external nodes
+        // TODO: diff goes to replicas
     }
 
     /// Read value(s)

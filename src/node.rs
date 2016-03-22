@@ -150,6 +150,21 @@ impl Node {
         }
     }
 
+    pub fn prepend_path(self, path: &[String]) -> Node {
+        let mut node = self;
+
+        for p in path.iter().rev() {
+            node = Node {
+                keys: Some(map! {
+                    p.clone() => node
+                }),
+                ..Default::default()
+            }
+        }
+
+        node
+    }
+
     fn is_noop(&self) -> bool {
         self.vis.is_noop() && self.value == Value::Null && self.keys.is_none()
     }
@@ -205,6 +220,12 @@ impl Node {
 
 impl Update {
     pub fn to_json(&self) -> Value {
+        let visible = match self.visible {
+            None => Value::Null,
+            Some(false) => Value::Bool(false),
+            Some(true) => Value::Bool(true)
+        };
+
         let value = self.new.clone().unwrap_or(Value::Null);
 
         let keys = match self.keys {
@@ -214,7 +235,7 @@ impl Update {
             ).collect())
         };
 
-        Value::Array(vec![value, keys])
+        Value::Array(vec![keys, visible, value])
     }
 }
 
