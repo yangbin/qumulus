@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
+use std::mem;
 
 use serde_json::Value;
 
@@ -25,14 +26,18 @@ pub struct Update {
     visible: Option<bool>,
     old: Option<Value>,
     new: Option<Value>,
-    keys: Option<BTreeMap<String, Update>>
-    // TODO: external status
+    keys: Option<BTreeMap<String, Update>>,
+    delegated: Option<bool>
 }
 
 pub struct External {
+    /// Path to delegated data
     path: Path,
-    p_min_updated: u64,
-    p_max_deleted: u64,
+
+    /// Effective visibility of parent node
+    parent_vis: Vis,
+
+    /// Data to be delegated
     node: Node
 }
 
@@ -150,6 +155,36 @@ impl Node {
         }
     }
 
+    pub fn delegate(timestamp: u64) -> Node {
+        Node {
+            vis: Vis {
+                ..Default::default()
+             },
+             delegated: timestamp | 1,
+             ..Default::default()
+        }
+    }
+
+    pub fn undelegate(timestamp: u64) -> Node {
+        Node {
+            vis: Vis {
+                ..Default::default()
+             },
+             delegated: timestamp & !1,
+             ..Default::default()
+        }
+    }
+
+    /// Returns all data that should be external
+    pub fn delegated(&mut self) -> Node {
+        Node {
+            vis: self.vis,
+            value: mem::replace(&mut self.value, Value::Null),
+            keys: mem::replace(&mut self.keys, None),
+            delegated: self.delegated
+        }
+    }
+
     pub fn prepend_path(self, path: &[String]) -> Node {
         let mut node = self;
 
@@ -165,8 +200,54 @@ impl Node {
         node
     }
 
-    fn is_noop(&self) -> bool {
+    pub fn is_noop(&self) -> bool {
         self.vis.is_noop() && self.value == Value::Null && self.keys.is_none()
+    }
+
+    /// Returns the estimated byte size of storing this node
+    pub fn byte_size(&self) -> usize {
+        match self.value {
+            Value::Bool(_) => 1,
+            Value::I64(_) | Value::U64(_) | Value::F64(_) => 8,
+            Value::String(ref s) => s.len(),
+            Value::Null => 1,
+            _ => unimplemented!()
+        }
+    }
+
+    /// Returns estimated byte size and the path from a leaf node to the root where each step of the
+    /// path is the largest node and its size.
+    ///
+    /// TODO: This doesn't feel like it should be here
+    pub fn max_bytes_path(&self) -> (usize, Vec<(String, usize)>) {
+        let mut byte_size = self.byte_size();
+
+        if let Some(ref node_keys) = self.keys {
+            let mut largest_k = "";
+            let mut largest_size = 0;
+            let mut max_path = vec![];
+
+            for (k, node_child) in node_keys.iter() {
+                let (c_byte_size, c_max_path) = node_child.max_bytes_path();
+
+                byte_size += k.len() + c_byte_size;
+
+                if c_byte_size > largest_size {
+                    largest_size = c_byte_size;
+                    largest_k = k;
+                    max_path = c_max_path;
+                }
+            }
+
+            if largest_size > 0 {
+                max_path.push((largest_k.to_string(), largest_size));
+            }
+
+            (byte_size, max_path)
+        }
+        else {
+            (byte_size, vec![])
+        }
     }
 
     /// Unified merge function - merges `diff` into `self` and returns changes.
@@ -401,8 +482,23 @@ fn merge(
         }
     }
 
+    // Handle delegation
     if node.delegated & 1 > 0 {
-        unimplemented!(); // TODO throw everything we have to external node
+        let external = External {
+            path: stack.clone(),
+            parent_vis: vis_new,
+            node: node.delegated()
+        };
+
+        externals.push(external);
+
+        // TODO: at this point, delegated data has been moved, so we better not crash
+
+        update.visible = None;
+        update.old = None;
+        update.new = None;
+        update.keys = None;
+        update.delegated = Some(true);
     }
 
     // TODO: throw node / diff / update away if empty
@@ -486,7 +582,7 @@ fn read(stack: &mut Path,
 
     // Delegated data
     if node.delegated & 1 > 0 {
-        unimplemented!(); // TODO throw everything we have to external node
+        update.delegated = Some(true);
     }
 
     return match update.is_noop() {

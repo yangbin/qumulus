@@ -12,6 +12,7 @@ use serde_json::Value;
 
 use command::Command;
 use command::Call;
+use delegate::delegate;
 use listener::Listener;
 use node::Node;
 use node::Vis;
@@ -130,24 +131,28 @@ impl Zone {
         // TODO: diff goes to replicas
     }
 
+    /// Merge value(s). Merge is generic and most operations are defined as a merge.
     pub fn merge(&mut self, mut diff: Node) {
-        let (update, _) = {
+        let (update, externals) = {
             let ZoneData { ref mut node, vis } = self.data;
 
             node.merge(&mut diff, vis, vis)
         };
 
+        // Only notify if there are changes
         if let Some(update) = update {
             self.notify(&update);
             self.writes += 1;
-
-            if self.writes >= 1000 {
-                self.split_check();
-            }
         }
 
-        // TODO: externals goes to external nodes
-        // TODO: diff goes to replicas
+        if externals.len() > 0 {
+            // TODO: we need a way to tell other zones about new data
+            //self.manager.send_externals(externals);
+        }
+
+        if ! diff.is_noop() {
+            // TODO: diff goes to replicas
+        }
     }
 
     /// Read value(s)
@@ -169,6 +174,7 @@ impl Zone {
         let diff = Node::expand_from(&path.path[..], &value, ts);
 
         self.merge(diff);
+        self.split_check();
     }
 
     fn notify(&self, update: &Update) {
@@ -185,10 +191,11 @@ impl Zone {
     }
 
     fn split_check(&mut self) {
-        println!("Checking if split needed, {} writes", self.writes);
-
-        // TODO
-
-        self.writes = 0;
+        if self.writes >= 10 {
+            if let Some(delegate_node) = delegate(&self.data.node) {
+                self.merge(delegate_node);
+                self.writes = 0;
+            }
+        }
     }
 }

@@ -6,6 +6,7 @@ extern crate time;
 
 pub mod client;
 pub mod command;
+pub mod delegate;
 pub mod listener;
 pub mod manager;
 pub mod node;
