@@ -380,7 +380,7 @@ fn merge(
         diff.value = Value::Null;
     }
     else { // same timesstamp
-        if diff.value == node.value {
+        if diff.value != node.value {
             // TODO: This isn't so good
             println!("Value conflict: {:?} - {:?} -> {:?} t+{:?}", stack, node.value, diff.value, diff.vis.updated);
         }
