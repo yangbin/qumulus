@@ -1,3 +1,13 @@
+//! Qumulus's CRDT representation.
+//!
+//! Data is represented as a hierarchical / nested maps-of-maps, with the ability to associate
+//! values with any path, and to use any path as a map.
+//!
+//! For each 'node' in the tree, two timestamps are tracked as meta information. These timestamps
+//! are used to for consistent conflict resolution.
+//!
+//! Deleted data leave meta information as tombstones which are occasionally cleared [TODO].
+
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 use std::mem;
@@ -261,16 +271,14 @@ impl Node {
     ///
     /// # Arguments
     ///
-    /// * `diff` - Set of changes to be applied. Modified to retain only actual changes.
-    /// * `vis_old` - The previous `Vis` timestamps of ancestor nodes.
-    /// * `vis_new` - The next `Vis` timestamps of ancestor nodes.
-    ///
-    /// # Return value
-    ///
-    /// The return value is a tuple of:
-    ///
-    /// * `updates` - a nested map of `Update`s to be sent to listeners, and
-    /// * `externals` - a Vec of External changes to be applied to other zones.
+    /// * [in]
+    ///   * `vis_old` - The previous `Vis` timestamps of ancestor nodes.
+    ///   * `vis_new` - The next `Vis` timestamps of ancestor nodes.
+    /// * [in/out]
+    ///   * `diff` - Set of changes to be applied. Modified to retain only actual changes.
+    /// * [out]
+    ///   * `updates` - a nested map of `Update`s to be sent to listeners, and
+    ///   * `externals` - a Vec of External changes to be applied to other zones.
     pub fn merge(&mut self,
                  diff: &mut Node,
                  vis_old: Vis,
@@ -320,7 +328,8 @@ impl Update {
     }
 }
 
-/// Internal merge implementation function. Function is recursive and tracks `path`.
+/// Internal merge implementation function. Function is recursive, current path of `node` being
+/// processed is tracked in `stack`.
 fn merge(
     stack: &mut Path,
     node: &mut Node,
