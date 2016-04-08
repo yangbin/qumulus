@@ -1,11 +1,15 @@
 //! Represents a path to a subtree / node. Ordered so we can iterate through paths in a BTreeMap
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Path {
     pub path: Vec<String>
 }
 
 impl Path {
+    pub fn empty() -> Path {
+        Path { path: vec![] }
+    }
+
     pub fn new(path: Vec<String>) -> Path {
         Path { path: path }
     }

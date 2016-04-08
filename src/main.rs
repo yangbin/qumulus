@@ -19,7 +19,7 @@ fn main() {
 
     let manager = manager::Manager::new();
 
-    let path = path::Path::new(vec![]);
+    let path = path::Path::empty();
     manager.load(&path);
 
     let port = std::env::var("PORT").unwrap_or("".to_string()).parse().unwrap_or(8888);

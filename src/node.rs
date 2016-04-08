@@ -286,7 +286,7 @@ impl Node {
                 ) -> (Option<Update>, Vec<External>) {
         let mut externals: Vec<External> = vec![];
 
-        let mut stack = Path::new(vec![]);
+        let mut stack = Path::empty();
 
         let update = merge(&mut stack, self, diff, vis_old, vis_new, &mut externals);
 
@@ -299,7 +299,7 @@ impl Node {
     pub fn read(&self, vis: Vis, path: &Path) -> (Option<Update>, Vec<External>) {
         let mut externals: Vec<External> = vec![];
 
-        let mut stack = Path::new(vec![]);
+        let mut stack = Path::empty();
 
         let update = read(&mut stack, self, vis, path, 0, &mut externals);
 
