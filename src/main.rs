@@ -17,7 +17,7 @@ pub mod zone;
 fn main() {
     println!("Qumulus v0.0.1");
 
-    let manager = manager::Manager::new();
+    let manager = manager::Manager::spawn();
 
     let path = path::Path::empty();
     manager.load(&path);

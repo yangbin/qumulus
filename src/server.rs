@@ -1,17 +1,16 @@
 use std::net::TcpListener;
-use std::sync::Arc;
 use std::thread;
 
 use client::Client;
-use manager::Manager;
+use manager::ManagerHandle;
 
 pub struct Server {
     port: u16,
-    manager: Arc<Manager>
+    manager: ManagerHandle
 }
 
 impl Server {
-    pub fn new(manager: Arc<Manager>, port: u16) -> Server {
+    pub fn new(manager: ManagerHandle, port: u16) -> Server {
         Server {
             port: port,
             manager: manager
@@ -28,7 +27,7 @@ impl Server {
     }
 }
 
-fn accept_loop(manager: Arc<Manager>, listener: TcpListener) {
+fn accept_loop(manager: ManagerHandle, listener: TcpListener) {
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {

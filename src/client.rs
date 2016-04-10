@@ -4,23 +4,22 @@ use std::io::prelude::*;
 use std::net::{TcpStream};
 use std::io::{BufReader, BufWriter};
 use std::thread;
-use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::Duration;
 
 use serde_json;
 
 use command::Command;
-use manager::Manager;
+use manager::ManagerHandle;
 
 pub struct Client {
-    manager: Arc<Manager>,
+    manager: ManagerHandle,
     stream: TcpStream
 }
 
 impl Client {
     /// Creates a new `Client` from a `TcpStream`
-    pub fn new(manager: Arc<Manager>, stream: TcpStream) {
+    pub fn new(manager: ManagerHandle, stream: TcpStream) {
         let client = Client {
             manager: manager,
             stream: stream
