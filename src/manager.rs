@@ -110,15 +110,47 @@ impl Manager {
         self.active.contains_key(path)
     }
 
-    pub fn find_nearest(&self, path: &Path) -> ZoneHandle {
-        // TODO actually find the nearest zone
-        let zone = self.active.get(&Path::empty());
+    /// Find the exact `Zone` specified by `path`
+    pub fn find(&self, path: &Path) -> Option<ZoneHandle> {
+        self.active.get(path).cloned()
+    }
 
-        match zone {
-            Some(zone) => zone.clone(),
-            None => {
-                unimplemented!()
+    /// Find the 'closest' `Zone` that would be able to satisfy a call to `path`
+    pub fn find_nearest(&self, path: &Path) -> (Path, ZoneHandle) {
+        // TODO: probably could be more efficient
+        let mut probe = path.clone();
+
+        loop {
+            if let Some(found) = self.active.get(&probe) {
+                return (probe, found.clone())
             }
+
+            probe.pop(); // crash if no root node
         }
     }
+}
+
+#[test]
+fn test_find_nearest() {
+    let mut manager = Manager::new();
+
+    let root        = Path::new(vec![]);
+    let moo         = Path::new(vec!["moo".into()]);
+    let moo_cow     = Path::new(vec!["moo".into(), "cow".into()]);
+    let moo_cow_cow = Path::new(vec!["moo".into(), "cow".into(), "cow".into()]);
+
+    manager.load(&root);
+    assert_eq!(manager.find_nearest(&moo).0, root);
+    assert_eq!(manager.find_nearest(&moo_cow).0, root);
+    assert_eq!(manager.find_nearest(&moo_cow_cow).0, root);
+
+    manager.load(&moo_cow);
+    assert_eq!(manager.find_nearest(&moo).0, root);
+    assert_eq!(manager.find_nearest(&moo_cow).0, moo_cow);
+    assert_eq!(manager.find_nearest(&moo_cow_cow).0, moo_cow);
+
+    manager.load(&moo);
+    assert_eq!(manager.find_nearest(&moo).0, moo);
+    assert_eq!(manager.find_nearest(&moo_cow).0, moo_cow);
+    assert_eq!(manager.find_nearest(&moo_cow_cow).0, moo_cow);
 }
