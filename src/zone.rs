@@ -3,7 +3,6 @@
 //! The Zone structure represents the subtree and is run as a thread.
 //! ZoneHandle is the public interface to a single zone.
 
-use std::collections::BTreeMap;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 use std::thread;
@@ -14,9 +13,8 @@ use command::Command;
 use command::Call;
 use delegate::delegate;
 use listener::Listener;
-use node::Node;
-use node::Vis;
-use node::Update;
+use manager::ManagerHandle;
+use node::{DelegatedMatch, Node, Update, Vis};
 use path::Path;
 
 #[derive(Debug)]
@@ -27,16 +25,28 @@ pub struct ZoneData {
 
 #[derive(Clone)]
 pub struct ZoneHandle {
-    tx: Sender<ZoneCommand>
+    tx: Sender<ZoneCall>
 }
 
-struct ZoneCommand {
+enum ZoneCall {
+    UserCommand(UserCommand),
+    Merge(Vis, Node)
+}
+
+struct UserCommand {
     command: Command,
-    reply: Sender<Value>,
+    reply: Sender<ZoneResult>,
     listener: Sender<String>
 }
 
+#[derive(Default)]
+pub struct ZoneResult {
+    pub update: Option<Update>,
+    pub delegated: Vec<DelegatedMatch>
+}
+
 pub struct Zone {
+    manager: ManagerHandle,   // Handle to manager
     path: Path,               // Path to this Zone
     data: ZoneData,           // 'Atomic' data for this Zone
     listeners: Vec<Listener>, // List of binds
@@ -47,21 +57,25 @@ pub struct Zone {
 }
 
 impl ZoneHandle {
-    pub fn dispatch(&self, command: Command, listener: &Sender<String>) -> Value {
+    pub fn dispatch(&self, command: Command, listener: &Sender<String>) -> ZoneResult {
         let (tx, rx) = mpsc::channel();
 
-        let command = ZoneCommand { command: command, reply: tx, listener: listener.clone() };
+        let command = UserCommand { command: command, reply: tx, listener: listener.clone() };
 
-        self.tx.send(command).unwrap();
+        self.tx.send(ZoneCall::UserCommand(command)).unwrap();
         rx.recv().unwrap()
+    }
+
+    pub fn merge(&self, parent_vis: Vis, diff: Node) {
+        self.tx.send(ZoneCall::Merge(parent_vis, diff)).unwrap();
     }
 }
 
 impl Zone {
-    pub fn spawn(path: &Path) -> ZoneHandle {
+    pub fn spawn(manager: ManagerHandle, path: &Path) -> ZoneHandle {
         let (tx, rx) = mpsc::channel();
 
-        let zone = Zone::new(path);
+        let zone = Zone::new(manager, path);
 
         thread::spawn(move|| {
             zone.message_loop(rx);
@@ -70,8 +84,9 @@ impl Zone {
         ZoneHandle { tx: tx }
     }
 
-    pub fn new(path: &Path) -> Zone {
+    pub fn new(manager: ManagerHandle, path: &Path) -> Zone {
         Zone {
+            manager: manager,
             path: path.clone(),
             data: ZoneData {
                 node: Node::expand(&Value::Null, 0),
@@ -85,35 +100,50 @@ impl Zone {
         }
     }
 
-    fn message_loop(mut self, rx: mpsc::Receiver<ZoneCommand>) {
-        for cmd in rx {
-            let result = self.dispatch(cmd.command, &cmd.listener);
+    fn message_loop(mut self, rx: mpsc::Receiver<ZoneCall>) {
+        for call in rx {
+            match call {
+                ZoneCall::UserCommand(cmd) => {
+                    let result = self.dispatch(cmd.command, &cmd.listener);
 
-            cmd.reply.send(result).unwrap(); // TODO: don't crash the Zone!
+                    cmd.reply.send(result).unwrap(); // TODO: don't crash the Zone!
+                },
+                ZoneCall::Merge(vis, diff) => {
+                    self.merge(vis, diff);
+                }
+            }
+
+            self.split_check();
         }
     }
 
-    pub fn dispatch(&mut self, command: Command, tx: &Sender<String>) -> Value {
+    pub fn dispatch(&mut self, command: Command, tx: &Sender<String>) -> ZoneResult {
         match command.call {
             Call::Bind => {
-                self.bind(&command.path, tx)
+                let (update, delegated) = self.bind(&command.path, tx);
+
+                ZoneResult { update: update, delegated: delegated }
             },
             Call::Kill => {
                 self.kill(&command.path, command.timestamp);
-                Value::Null
+
+                ZoneResult { ..Default::default() }
             }
             Call::Read => {
-                self.read(&command.path)
+                let (update, delegated) = self.read(&command.path);
+
+                ZoneResult { update: update, delegated: delegated }
             },
             Call::Write => {
                 self.write(&command.path, command.timestamp, command.params);
-                Value::Null
+
+                ZoneResult { ..Default::default() }
             }
         }
     }
 
     /// Bind value(s)
-    pub fn bind(&mut self, path: &Path, tx: &Sender<String>) -> Value {
+    pub fn bind(&mut self, path: &Path, tx: &Sender<String>) -> (Option<Update>, Vec<DelegatedMatch>) {
         // TODO verify path
 
         self.sub(path, tx);
@@ -126,18 +156,21 @@ impl Zone {
 
         let diff = node.prepend_path(&path.path);
 
-        self.merge(diff);
+        self.merge(Default::default(), diff);
         // TODO: externals goes to external nodes
         // TODO: diff goes to replicas
     }
 
     /// Merge value(s). Merge is generic and most operations are defined as a merge.
-    pub fn merge(&mut self, mut diff: Node) {
+    pub fn merge(&mut self, mut parent_new_vis: Vis, mut diff: Node) {
         let (update, externals) = {
             let ZoneData { ref mut node, vis } = self.data;
 
-            node.merge(&mut diff, vis, vis)
+            parent_new_vis.merge(&vis); // 'new' vis cannot contain older data than current vis
+            node.merge(&mut diff, vis, parent_new_vis)
         };
+
+        self.data.vis = parent_new_vis;
 
         // Only notify if there are changes
         if let Some(update) = update {
@@ -146,8 +179,7 @@ impl Zone {
         }
 
         if externals.len() > 0 {
-            // TODO: we need a way to tell other zones about new data
-            //self.manager.send_externals(externals);
+            self.manager.send_externals(&self.path, externals);
         }
 
         if ! diff.is_noop() {
@@ -156,16 +188,10 @@ impl Zone {
     }
 
     /// Read value(s)
-    pub fn read(&self, path: &Path) -> Value {
+    pub fn read(&self, path: &Path) -> (Option<Update>, Vec<DelegatedMatch>) {
         // TODO verify path
 
-        let read = self.data.node.read(self.data.vis, path);
-
-        let (update, _) = read;
-
-        // TODO: return externals too
-
-        update.map_or(Value::Null, |u| u.to_json())
+        self.data.node.read(self.data.vis, path)
     }
 
     /// Writes value(s) to the node at `path` at time `ts`
@@ -173,14 +199,14 @@ impl Zone {
         // TODO verify path
         let diff = Node::expand_from(&path.path[..], &value, ts);
 
-        self.merge(diff);
-        self.split_check();
+        self.merge(Default::default(), diff);
     }
 
     fn notify(&self, update: &Update) {
         for listener in &self.listeners {
             listener.update(update).unwrap();
             // TODO: don't crash Zone; remove listener from list
+            // TODO: if externals change, binds need to be propagated to new Zones
         }
     }
 
@@ -192,9 +218,10 @@ impl Zone {
 
     fn split_check(&mut self) {
         if self.writes >= 10 {
+            self.writes = 0;
+
             if let Some(delegate_node) = delegate(&self.data.node) {
-                self.merge(delegate_node);
-                self.writes = 0;
+                self.merge(Default::default(), delegate_node);
             }
         }
     }

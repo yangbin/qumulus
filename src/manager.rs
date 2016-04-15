@@ -5,12 +5,9 @@ use std::collections::BTreeMap;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 
-use serde_json::Value;
-
-use command::Command;
+use node::External;
 use path::Path;
-use zone::Zone;
-use zone::ZoneHandle;
+use zone::{Zone, ZoneHandle};
 
 #[derive(Clone)]
 pub struct ManagerHandle {
@@ -19,6 +16,7 @@ pub struct ManagerHandle {
 
 pub enum ManagerCall {
     FindNearest(Path),
+    Find(Path),
     Load(Path),
     ZoneLoaded(Path)
 }
@@ -30,18 +28,30 @@ pub struct Manager {
 }
 
 impl ManagerHandle {
-    pub fn dispatch(&self, command: Command, tx: &Sender<String>) -> Value {
-        let zone = self.find_nearest(&command.path);
-
-        zone.dispatch(command, tx)
+    pub fn find(&self, path: &Path) -> Option<ZoneHandle> {
+        self.call(ManagerCall::Find(path.clone()))
     }
 
-    pub fn find_nearest(&self, path: &Path) -> ZoneHandle {
+    pub fn find_nearest(&self, path: &Path) -> (Path, ZoneHandle) {
         self.call(ManagerCall::FindNearest(path.clone()))
     }
 
-    pub fn load(&self, path: &Path) {
+    pub fn load(&self, path: &Path) -> ZoneHandle {
         self.call(ManagerCall::Load(path.clone()))
+    }
+
+    pub fn send_externals(&self, prefix: &Path, externals: Vec<External>) {
+        // TODO: concurrency here is bad
+        for mut external in externals {
+            // TODO: zone may be remote
+            let mut path = prefix.clone();
+
+            path.append(&mut external.path);
+
+            let zone = self.load(&path);
+
+            zone.merge(external.parent_vis, external.node);
+        }
     }
 
     pub fn zone_loaded(&self, path: &Path) -> bool {
@@ -87,6 +97,7 @@ impl Manager {
             let (reply, call) = self.rx.recv().unwrap();
 
             let result: Box<Any + Send> = match call {
+                ManagerCall::Find(path) => Box::new(self.find(&path)),
                 ManagerCall::FindNearest(path) => Box::new(self.find_nearest(&path)),
                 ManagerCall::Load(path) => Box::new(self.load(&path)),
                 ManagerCall::ZoneLoaded(path) => Box::new(self.zone_loaded(&path))
@@ -96,14 +107,16 @@ impl Manager {
         }
     }
 
-    pub fn load(&mut self, path: &Path) {
-        if self.zone_loaded(&path) {
-            return;
+    pub fn load(&mut self, path: &Path) -> ZoneHandle {
+        if let Some(zone) = self.active.get(path) {
+            return zone.clone();
         }
 
-        let zone = Zone::spawn(path);
+        let zone = Zone::spawn(self.handle(), path);
 
-        self.active.insert(path.clone(), zone);
+        self.active.insert(path.clone(), zone.clone());
+
+        zone
     }
 
     pub fn zone_loaded(&self, path: &Path) -> bool {

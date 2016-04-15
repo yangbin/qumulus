@@ -1,5 +1,7 @@
 //! Represents a path to a subtree / node. Ordered so we can iterate through paths in a BTreeMap
 
+use serde_json::Value;
+
 #[derive(Clone, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Path {
     pub path: Vec<String>
@@ -14,6 +16,10 @@ impl Path {
         Path { path: path }
     }
 
+    pub fn append(&mut self, path: &mut Path) {
+        self.path.append(&mut path.path);
+    }
+
     pub fn push(&mut self, component: &String) {
         // TODO: unncessary copy
         self.path.push(component.clone());
@@ -25,6 +31,21 @@ impl Path {
 
     pub fn len(&self) -> usize {
         self.path.len()
+    }
+
+    /// Returns a new `Path` prefix that is fully resolved, i.e. no wildcards
+    pub fn resolved(&self) -> Path {
+        let prefix = self.path.iter().take_while(|p| p.starts_with("#"));
+
+        Path::new(prefix.cloned().collect())
+    }
+
+    pub fn slice(&self, n: usize) -> Path {
+        Path::new(self.path[n..].to_vec())
+    }
+
+    pub fn to_json(&self) -> Value {
+        Value::Array(self.path.iter().map(|p| Value::String(p.clone())).collect())
     }
 }
 

@@ -40,15 +40,25 @@ pub struct Update {
     delegated: Option<bool>
 }
 
+#[derive(Debug, Default)]
 pub struct External {
     /// Path to delegated data
-    path: Path,
+    pub path: Path,
 
     /// Effective visibility of parent node
-    parent_vis: Vis,
+    pub parent_vis: Vis,
 
-    /// Data to be delegated
-    node: Node
+    /// Data to be delegated (relative)
+    pub node: Node
+}
+
+#[derive(Debug, Default)]
+pub struct DelegatedMatch {
+    /// Path to delegated data
+    pub path: Path,
+
+    /// Relative path / match spec
+    pub match_spec: Path
 }
 
 macro_rules! map(
@@ -68,11 +78,24 @@ impl Vis {
         Vis { updated: updated, deleted: deleted }
     }
 
-    fn is_visible(&self) -> bool {
+    /// Returns new effective visibility given child visibility
+    pub fn descend(&mut self, child: &Vis) {
+        if child.updated < self.updated { self.updated = child.updated }
+        if child.deleted > self.deleted { self.deleted = child.deleted }
+    }
+
+    /// Returns true if merging this `Vis` does nothing. Also `Default::default()`
+    pub fn is_noop(&self) -> bool {
+        self.updated == 0 && self.deleted == 0
+    }
+
+    /// Returns visibility of `Vis`
+    pub fn is_visible(&self) -> bool {
         self.updated > self.deleted
     }
 
-    fn merge(&mut self, diff: &Vis) {
+    /// Resolve `Vis` conflicts by keeping newest data
+    pub fn merge(&mut self, diff: &Vis) {
         if diff.updated > self.updated {
             self.updated = diff.updated;
         }
@@ -80,16 +103,6 @@ impl Vis {
         if diff.deleted > self.deleted {
             self.deleted = diff.deleted;
         }
-    }
-
-    /// Returns new effective visibility given child visibility
-    fn descend(&mut self, child: &Vis) {
-        if child.updated < self.updated { self.updated = child.updated }
-        if child.deleted > self.deleted { self.deleted = child.deleted }
-    }
-
-    fn is_noop(&self) -> bool {
-        self.updated == 0 && self.deleted == 0
     }
 }
 
@@ -296,8 +309,8 @@ impl Node {
     /// Read data from node
     ///
     /// Returns user-visible data at `path`.
-    pub fn read(&self, vis: Vis, path: &Path) -> (Option<Update>, Vec<External>) {
-        let mut externals: Vec<External> = vec![];
+    pub fn read(&self, vis: Vis, path: &Path) -> (Option<Update>, Vec<DelegatedMatch>) {
+        let mut externals = vec![];
 
         let mut stack = Path::empty();
 
@@ -319,8 +332,11 @@ impl Update {
 
         let keys = match self.keys {
             None => Value::Null,
-            Some(ref keys) => Value::Object(keys.iter().map(|(k, v)|
-                (k.clone(), v.to_json())
+            Some(ref keys) => Value::Object(keys.iter().filter_map(|(k, v)|
+                match v.delegated {
+                    Some(true) => None,
+                    _ => Some((k.clone(), v.to_json()))
+                }
             ).collect())
         };
 
@@ -492,7 +508,7 @@ fn merge(
     }
 
     // Handle delegation
-    if node.delegated & 1 > 0 {
+    if stack.len() > 0 && node.delegated & 1 > 0 {
         let external = External {
             path: stack.clone(),
             parent_vis: vis_new,
@@ -524,10 +540,25 @@ fn read(stack: &mut Path,
         mut vis: Vis, // Visibility of parent node
         path: &Path,
         pos: usize,
-        externals: &mut Vec<External>)
+        externals: &mut Vec<DelegatedMatch>)
 -> Option<Update> {
     // Effective visibility of this node
     vis.descend(&node.vis);
+
+    // Delegated data
+    if stack.len() > 0 && node.delegated & 1 > 0 {
+        let delegated = DelegatedMatch {
+            path: stack.clone(),
+            match_spec: path.slice(pos).clone()
+        };
+
+        externals.push(delegated);
+
+        return Some(Update {
+            delegated: Some(true),
+            ..Default::default()
+        });
+    }
 
     let mut update: Update = Default::default();
 
@@ -587,11 +618,6 @@ fn read(stack: &mut Path,
                 }
             }
         }
-    }
-
-    // Delegated data
-    if node.delegated & 1 > 0 {
-        update.delegated = Some(true);
     }
 
     return match update.is_noop() {

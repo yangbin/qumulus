@@ -6,7 +6,7 @@ use time;
 
 use path::Path;
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Command {
     pub id: u64,
     pub call: Call,
@@ -15,7 +15,7 @@ pub struct Command {
     pub timestamp: u64
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Call {
     Bind,
     Kill,
@@ -59,6 +59,16 @@ impl Command {
             params: params,
             timestamp: time::precise_time_ns()
         })
+    }
+
+    /// Returns true if delegated data requires separate calls.
+    ///
+    /// Right now, only `Call::Bind` and Call::Read` fall into this category
+    pub fn recursive(&self) -> bool {
+        match self.call {
+            Call::Bind | Call::Read => true,
+            _ => false
+        }
     }
 }
 
