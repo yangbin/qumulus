@@ -11,6 +11,7 @@ pub mod listener;
 pub mod manager;
 pub mod node;
 pub mod path;
+pub mod shell;
 pub mod server;
 pub mod zone;
 
@@ -31,6 +32,10 @@ fn main() {
     server.listen();
 
     println!("listening on port: {}", port);
+
+    let stdin = std::io::stdin();
+
+    shell::start(manager.clone(), stdin.lock(), std::io::stdout());
 
     loop {
         std::thread::park();

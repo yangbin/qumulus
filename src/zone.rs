@@ -30,7 +30,8 @@ pub struct ZoneHandle {
 
 enum ZoneCall {
     UserCommand(UserCommand),
-    Merge(Vis, Node)
+    Merge(Vis, Node),
+    Size(Sender<usize>)
 }
 
 struct UserCommand {
@@ -68,6 +69,13 @@ impl ZoneHandle {
 
     pub fn merge(&self, parent_vis: Vis, diff: Node) {
         self.tx.send(ZoneCall::Merge(parent_vis, diff)).unwrap();
+    }
+
+    pub fn size(&self) -> usize {
+        let (tx, rx) = mpsc::channel();
+
+        self.tx.send(ZoneCall::Size(tx)).unwrap();
+        rx.recv().unwrap()
     }
 }
 
@@ -110,6 +118,9 @@ impl Zone {
                 },
                 ZoneCall::Merge(vis, diff) => {
                     self.merge(vis, diff);
+                },
+                ZoneCall::Size(reply) => {
+                    reply.send(self.size()).unwrap();
                 }
             }
 
@@ -192,6 +203,11 @@ impl Zone {
         // TODO verify path
 
         self.data.node.read(self.data.vis, path)
+    }
+
+    /// Get estimated size
+    pub fn size(&self) -> usize {
+        self.data.node.max_bytes_path().0
     }
 
     /// Writes value(s) to the node at `path` at time `ts`

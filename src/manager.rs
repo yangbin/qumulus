@@ -17,6 +17,7 @@ pub struct ManagerHandle {
 pub enum ManagerCall {
     FindNearest(Path),
     Find(Path),
+    List,
     Load(Path),
     ZoneLoaded(Path)
 }
@@ -56,6 +57,10 @@ impl ManagerHandle {
 
     pub fn zone_loaded(&self, path: &Path) -> bool {
         self.call(ManagerCall::ZoneLoaded(path.clone()))
+    }
+
+    pub fn list(&self) -> Vec<(Path, ZoneHandle)> {
+        self.call(ManagerCall::List)
     }
 
     /// Generic function to call a function on the underlying Manager through message passing
@@ -99,6 +104,7 @@ impl Manager {
             let result: Box<Any + Send> = match call {
                 ManagerCall::Find(path) => Box::new(self.find(&path)),
                 ManagerCall::FindNearest(path) => Box::new(self.find_nearest(&path)),
+                ManagerCall::List => Box::new(self.list()),
                 ManagerCall::Load(path) => Box::new(self.load(&path)),
                 ManagerCall::ZoneLoaded(path) => Box::new(self.zone_loaded(&path))
             };
@@ -140,6 +146,11 @@ impl Manager {
 
             probe.pop(); // crash if no root node
         }
+    }
+
+    /// List all active zones
+    pub fn list(&self) -> Vec<(Path, ZoneHandle)> {
+        self.active.iter().map( |(p, z)| (p.clone(), z.clone()) ).collect()
     }
 }
 
