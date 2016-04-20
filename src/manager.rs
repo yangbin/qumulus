@@ -80,9 +80,9 @@ impl Manager {
         let manager = Manager::new();
         let handle = manager.handle();
 
-        thread::spawn(move|| {
+        thread::Builder::new().name("Manager".into()).spawn(move|| {
             manager.message_loop();
-        });
+        }).unwrap();
 
         handle
     }

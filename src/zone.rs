@@ -85,9 +85,11 @@ impl Zone {
 
         let zone = Zone::new(manager, path);
 
-        thread::spawn(move|| {
+        let name = path.path.join(".");
+
+        thread::Builder::new().name("Zone ".to_string() + &name).spawn(move|| {
             zone.message_loop(rx);
-        });
+        }).unwrap();
 
         ZoneHandle { tx: tx }
     }
