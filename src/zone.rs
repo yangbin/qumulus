@@ -99,7 +99,7 @@ impl Zone {
             manager: manager,
             path: path.clone(),
             data: ZoneData {
-                node: Node::expand(&Value::Null, 0),
+                node: Node::expand(Value::Null, 0),
                 vis: match path.path.len() {
                     0 => Vis::new(1, 0),
                     _ => Default::default()
@@ -215,7 +215,7 @@ impl Zone {
     /// Writes value(s) to the node at `path` at time `ts`
     pub fn write(&mut self, path: &Path, ts: u64, value: Value) {
         // TODO verify path
-        let diff = Node::expand_from(&path.path[..], &value, ts);
+        let diff = Node::expand_from(&path.path[..], value, ts);
 
         self.merge(Default::default(), diff);
     }

@@ -128,39 +128,39 @@ impl Node {
         }
     }
 
-    pub fn expand(data: &Value, timestamp: u64) -> Node {
-        if let Value::Array(ref arr) = *data {
-            let keys = arr.iter().enumerate().map(|(k, v)|
-                (k.to_string(), Node::expand(&v, timestamp))
-            ).collect();
+    pub fn expand(data: Value, timestamp: u64) -> Node {
+        match data {
+            Value::Array(arr) => {
+                let keys = arr.into_iter().enumerate().map(|(k, v)|
+                    (k.to_string(), Node::expand(v, timestamp))
+                ).collect();
 
-            Node {
-                vis: Vis { updated: timestamp, ..Default::default() },
-                keys: Some(keys),
+                Node {
+                    vis: Vis { updated: timestamp, ..Default::default() },
+                    keys: Some(keys),
                 ..Default::default()
-            }
-        }
-        else if let Value::Object(ref obj) = *data {
-            let keys = obj.iter().map(|(k, v)|
-                (k.clone(), Node::expand(&v, timestamp))
-            ).collect();
+                }
+            },
+            Value::Object(obj) => {
+                let keys = obj.into_iter().map(|(k, v)|
+                    (k, Node::expand(v, timestamp))
+                ).collect();
 
-            Node {
-                vis: Vis { updated: timestamp, ..Default::default() },
-                keys: Some(keys),
+                Node {
+                    vis: Vis { updated: timestamp, ..Default::default() },
+                    keys: Some(keys),
                 ..Default::default()
-            }
-        }
-        else {
-            Node {
+                }
+            },
+            _ => Node {
                 vis: Vis { updated: timestamp, ..Default::default() },
-                value: data.clone(),
+                value: data,
                 ..Default::default()
             }
         }
     }
 
-    pub fn expand_from(path: &[String], data: &Value, timestamp: u64) -> Node {
+    pub fn expand_from(path: &[String], data: Value, timestamp: u64) -> Node {
         // TODO: make iterative
         match path.len() {
             0 => Node::expand(data, timestamp),
@@ -658,7 +658,7 @@ fn test_expand() {
         }
     "#).unwrap();
 
-    let node = Node::expand(&data, 1000);
+    let node = Node::expand(data, 1000);
 
     let expected = Node {
         vis: Vis {
