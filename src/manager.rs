@@ -2,8 +2,10 @@
 
 use std::any::Any;
 use std::collections::BTreeMap;
-use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
+
+use mioco;
+use mioco::sync::mpsc::{channel, Receiver, Sender};
 
 use node::External;
 use path::Path;
@@ -80,9 +82,11 @@ impl Manager {
         let manager = Manager::new();
         let handle = manager.handle();
 
-        thread::Builder::new().name("Manager".into()).spawn(move|| {
-            manager.message_loop();
-        }).unwrap();
+        thread::spawn(move|| {
+            mioco::start_threads(10, move|| {
+                manager.message_loop();
+            }).unwrap();
+        });
 
         handle
     }

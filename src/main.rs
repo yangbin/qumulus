@@ -1,5 +1,9 @@
 //! A distributed hierarchical data distribution thingy
 
+#![recursion_limit="128"]
+
+#[macro_use]
+extern crate mioco;
 extern crate serde;
 extern crate serde_json;
 extern crate time;

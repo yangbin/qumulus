@@ -5,11 +5,10 @@ use std::io::prelude::*;
 use std::io::{BufReader, BufWriter};
 use std::mem;
 use std::net::TcpStream;
-use std::sync::mpsc;
-use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 use std::time::Duration;
 
+use mioco::sync::mpsc::{channel, Receiver, Sender};
 use serde_json;
 use serde_json::Value;
 
@@ -27,7 +26,7 @@ pub struct Client {
 impl Client {
     /// Creates a new `Client` from a `TcpStream`
     pub fn new(manager: ManagerHandle, stream: TcpStream) {
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = channel();
 
         let client = Client {
             manager: manager,
@@ -134,14 +133,14 @@ impl Client {
         let mut writer = BufWriter::new(self.stream.try_clone().unwrap());
 
         thread::spawn(move|| {
-            for message in channel {
+            loop {
+                let message = channel.recv().unwrap();
+
                 // TODO: test socket for writability
                 writer.write(message.as_bytes()).unwrap();
                 writer.write(b"\n").unwrap();
                 writer.flush().unwrap();
             }
-
-            println!("Write: Hangup");
         });
     }
 }

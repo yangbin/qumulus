@@ -3,10 +3,11 @@
 //! The Zone structure represents the subtree and is run as a thread.
 //! ZoneHandle is the public interface to a single zone.
 
-use std::sync::mpsc;
-use std::sync::mpsc::Sender;
 use std::thread;
+use std::time::Duration;
 
+use mioco;
+use mioco::sync::mpsc::{channel, Receiver, Sender};
 use serde_json::Value;
 
 use command::Command;
@@ -59,7 +60,7 @@ pub struct Zone {
 
 impl ZoneHandle {
     pub fn dispatch(&self, command: Command, listener: &Sender<String>) -> ZoneResult {
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = channel();
 
         let command = UserCommand { command: command, reply: tx, listener: listener.clone() };
 
@@ -72,7 +73,7 @@ impl ZoneHandle {
     }
 
     pub fn size(&self) -> usize {
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = channel();
 
         self.tx.send(ZoneCall::Size(tx)).unwrap();
         rx.recv().unwrap()
@@ -81,15 +82,15 @@ impl ZoneHandle {
 
 impl Zone {
     pub fn spawn(manager: ManagerHandle, path: &Path) -> ZoneHandle {
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = channel();
 
         let zone = Zone::new(manager, path);
 
         let name = path.path.join(".");
 
-        thread::Builder::new().name("Zone ".to_string() + &name).spawn(move|| {
+        mioco::spawn(move|| {
             zone.message_loop(rx);
-        }).unwrap();
+        });
 
         ZoneHandle { tx: tx }
     }
@@ -110,8 +111,10 @@ impl Zone {
         }
     }
 
-    fn message_loop(mut self, rx: mpsc::Receiver<ZoneCall>) {
-        for call in rx {
+    fn message_loop(mut self, rx: Receiver<ZoneCall>) {
+        loop {
+            let call = rx.recv().unwrap();
+
             match call {
                 ZoneCall::UserCommand(cmd) => {
                     let result = self.dispatch(cmd.command, &cmd.listener);

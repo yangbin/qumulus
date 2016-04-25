@@ -1,7 +1,7 @@
 use std::sync::Mutex;
-use std::sync::mpsc;
-use std::sync::mpsc::{SendError, Sender};
+use std::sync::mpsc::SendError;
 
+use mioco::sync::mpsc::Sender;
 use serde_json;
 
 use node::Update;
@@ -9,7 +9,7 @@ use path::Path;
 
 pub struct Listener {
     pub path: Path,
-    pub tx: Mutex<mpsc::Sender<String>>
+    pub tx: Mutex<Sender<String>>
 }
 
 impl Listener {
