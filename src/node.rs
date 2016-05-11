@@ -12,9 +12,10 @@ use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 use std::mem;
 
-use serde_json::Value;
+use serde_json::Value as JSON;
 
 use path::Path;
+use value::Value;
 
 /// Tracks visibility of a node
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -128,39 +129,42 @@ impl Node {
         }
     }
 
-    pub fn expand(data: Value, timestamp: u64) -> Node {
-        match data {
-            Value::Array(arr) => {
-                let keys = arr.into_iter().enumerate().map(|(k, v)|
-                    (k.to_string(), Node::expand(v, timestamp))
-                ).collect();
+    pub fn expand(data: JSON, timestamp: u64) -> Node {
+        let vis = Vis { updated: timestamp, ..Default::default() };
 
-                Node {
-                    vis: Vis { updated: timestamp, ..Default::default() },
-                    keys: Some(keys),
-                ..Default::default()
-                }
-            },
-            Value::Object(obj) => {
+        match data {
+            JSON::Null => Node { vis: vis, value: Value::Null, ..Default::default() },
+            JSON::Bool(v) => Node { vis: vis, value: Value::Bool(v), ..Default::default() },
+            JSON::I64(v) => Node { vis: vis, value: Value::I64(v), ..Default::default() },
+            JSON::U64(v) => Node { vis: vis, value: Value::U64(v), ..Default::default() },
+            JSON::F64(v) => Node { vis: vis, value: Value::F64(v), ..Default::default() },
+            JSON::String(s) => Node { vis: vis, value: Value::from(s), ..Default::default() },
+            JSON::Object(obj) => {
                 let keys = obj.into_iter().map(|(k, v)|
                     (k, Node::expand(v, timestamp))
                 ).collect();
 
                 Node {
-                    vis: Vis { updated: timestamp, ..Default::default() },
+                    vis: vis,
                     keys: Some(keys),
                 ..Default::default()
                 }
             },
-            _ => Node {
-                vis: Vis { updated: timestamp, ..Default::default() },
-                value: data,
+            JSON::Array(arr) => {
+                let keys = arr.into_iter().enumerate().map(|(k, v)|
+                    (k.to_string(), Node::expand(v, timestamp))
+                ).collect();
+
+                Node {
+                    vis: vis,
+                    keys: Some(keys),
                 ..Default::default()
+                }
             }
         }
     }
 
-    pub fn expand_from(path: &[String], data: Value, timestamp: u64) -> Node {
+    pub fn expand_from(path: &[String], data: JSON, timestamp: u64) -> Node {
         // TODO: make iterative
         match path.len() {
             0 => Node::expand(data, timestamp),
@@ -233,8 +237,7 @@ impl Node {
             Value::Bool(_) => 1,
             Value::I64(_) | Value::U64(_) | Value::F64(_) => 8,
             Value::String(ref s) => s.len(),
-            Value::Null => 1,
-            _ => unimplemented!()
+            Value::Null => 1
         }
     }
 
@@ -321,18 +324,25 @@ impl Node {
 }
 
 impl Update {
-    pub fn to_json(&self) -> Value {
+    pub fn to_json(&self) -> JSON {
         let visible = match self.visible {
-            None => Value::Null,
-            Some(false) => Value::Bool(false),
-            Some(true) => Value::Bool(true)
+            None => JSON::Null,
+            Some(false) => JSON::Bool(false),
+            Some(true) => JSON::Bool(true)
         };
 
-        let value = self.new.clone().unwrap_or(Value::Null);
+        let value = match self.new {
+            Some(Value::Null) | None => JSON::Null,
+            Some(Value::Bool(v)) => JSON::Bool(v),
+            Some(Value::I64(v)) => JSON::I64(v),
+            Some(Value::U64(v)) => JSON::U64(v),
+            Some(Value::F64(v)) => JSON::F64(v),
+            Some(Value::String(ref s)) => JSON::String(String::from(&**s))
+        };
 
         let keys = match self.keys {
-            None => Value::Null,
-            Some(ref keys) => Value::Object(keys.iter().filter_map(|(k, v)|
+            None => JSON::Null,
+            Some(ref keys) => JSON::Object(keys.iter().filter_map(|(k, v)|
                 match v.delegated {
                     Some(true) => None,
                     _ => Some((k.clone(), v.to_json()))
@@ -340,7 +350,7 @@ impl Update {
             ).collect())
         };
 
-        Value::Array(vec![keys, visible, value])
+        JSON::Array(vec![keys, visible, value])
     }
 }
 
@@ -652,7 +662,7 @@ use serde_json;
 
 #[test]
 fn test_expand() {
-    let data: Value = serde_json::from_str(r#"
+    let data: JSON = serde_json::from_str(r#"
         {
             "moo": 42
         }
@@ -672,7 +682,7 @@ fn test_expand() {
                     updated: 1000,
                     deleted: 0
                 },
-                value: serde_json::to_value(&42),
+                value: Value::U64(42),
                 keys: None,
                 delegated: 0
             }

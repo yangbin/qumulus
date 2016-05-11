@@ -17,6 +17,7 @@ pub mod node;
 pub mod path;
 pub mod shell;
 pub mod server;
+pub mod value;
 pub mod zone;
 
 fn main() {
