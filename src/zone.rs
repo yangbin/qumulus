@@ -3,9 +3,6 @@
 //! The Zone structure represents the subtree and is run as a thread.
 //! ZoneHandle is the public interface to a single zone.
 
-use std::thread;
-use std::time::Duration;
-
 use mioco;
 use mioco::sync::mpsc::{channel, Receiver, Sender};
 use serde_json::Value;
