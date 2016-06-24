@@ -1,5 +1,8 @@
-use std::net::TcpListener;
+//use std::net::TcpListener;
 use std::thread;
+
+use mioco::tcp::TcpListener;
+use mioco;
 
 use client::Client;
 use manager::ManagerHandle;
@@ -19,16 +22,27 @@ impl Server {
 
     pub fn listen(&self) {
         let manager = self.manager.clone();
-        let listener = TcpListener::bind(("127.0.0.1", self.port)).unwrap();
+        let port = self.port;
 
         thread::spawn(move|| {
-            accept_loop(manager, listener);
+            mioco::start(move|| {
+                use std::net::SocketAddr;
+
+                let addr = SocketAddr::new("127.0.0.1".parse().unwrap(), port);
+                let listener = TcpListener::bind(&addr).unwrap();
+
+                println!("Listening on {:?}", listener.local_addr());
+
+                accept_loop(manager, listener);
+            }).unwrap();
         });
     }
 }
 
 fn accept_loop(manager: ManagerHandle, listener: TcpListener) {
-    for stream in listener.incoming() {
+    loop {
+        let stream = listener.accept();
+
         match stream {
             Ok(stream) => {
                 // connection succeeded
