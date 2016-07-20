@@ -9,10 +9,12 @@ use mioco::sync::mpsc::{channel, Receiver, Sender};
 
 use node::External;
 use path::Path;
+use store::StoreHandle;
 use zone::{Zone, ZoneHandle};
 
 #[derive(Clone)]
 pub struct ManagerHandle {
+    pub store: StoreHandle,
     tx: Sender<(Sender<Box<Any + Send>>, ManagerCall)>
 }
 
@@ -25,6 +27,7 @@ pub enum ManagerCall {
 }
 
 pub struct Manager {
+    store: StoreHandle,
     active: BTreeMap<Path, ZoneHandle>,
     rx: Receiver<(Sender<Box<Any + Send>>, ManagerCall)>,
     tx: Sender<(Sender<Box<Any + Send>>, ManagerCall)>
@@ -78,8 +81,8 @@ impl ManagerHandle {
 }
 
 impl Manager {
-    pub fn spawn() -> ManagerHandle {
-        let manager = Manager::new();
+    pub fn spawn(store: StoreHandle) -> ManagerHandle {
+        let manager = Manager::new(store);
         let handle = manager.handle();
 
         thread::spawn(move|| {
@@ -91,14 +94,14 @@ impl Manager {
         handle
     }
 
-    pub fn new() -> Manager {
+    pub fn new(store: StoreHandle) -> Manager {
         let (tx, rx) = channel();
 
-        Manager { active: BTreeMap::new(), tx: tx, rx: rx }
+        Manager { store: store, active: BTreeMap::new(), tx: tx, rx: rx }
     }
 
     fn handle(&self) -> ManagerHandle {
-        ManagerHandle { tx: self.tx.clone() }
+        ManagerHandle { tx: self.tx.clone(), store: self.store.clone() }
     }
 
     fn message_loop(mut self) {
@@ -125,6 +128,8 @@ impl Manager {
         let zone = Zone::spawn(self.handle(), path);
 
         self.active.insert(path.clone(), zone.clone());
+
+        zone.load(); // TODO: don't load if we're at capacity
 
         zone
     }
@@ -160,7 +165,10 @@ impl Manager {
 
 #[test]
 fn test_find_nearest() {
-    let mut manager = Manager::new();
+    use store::Store;
+
+    let store = Store::spawn();
+    let mut manager = Manager::new(store);
 
     let root        = Path::new(vec![]);
     let moo         = Path::new(vec!["moo".into()]);
@@ -181,4 +189,16 @@ fn test_find_nearest() {
     assert_eq!(manager.find_nearest(&moo).0, moo);
     assert_eq!(manager.find_nearest(&moo_cow).0, moo_cow);
     assert_eq!(manager.find_nearest(&moo_cow_cow).0, moo_cow);
+}
+
+#[test]
+fn test_load() {
+    use store::Store;
+
+    let store = Store::spawn();
+    let mut manager = Manager::new(store);
+    let root = Path::new(vec![]);
+    let zone = manager.load(&root);
+
+    assert!(zone.state().is_loading());
 }

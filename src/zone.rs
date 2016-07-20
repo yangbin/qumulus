@@ -28,8 +28,10 @@ pub struct ZoneHandle {
 
 enum ZoneCall {
     UserCommand(UserCommand),
+    Load,
     Merge(Vis, Node),
-    Size(Sender<usize>)
+    Size(Sender<usize>),
+    State(Sender<ZoneState>)
 }
 
 struct UserCommand {
@@ -44,10 +46,20 @@ pub struct ZoneResult {
     pub delegated: Vec<DelegatedMatch>
 }
 
+/// Tracks current state of a Zone
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ZoneState {
+    state: u64 // TODO: use atomics
+}
+
 pub struct Zone {
-    manager: ManagerHandle,   // Handle to manager
     path: Path,               // Path to this Zone
     data: ZoneData,           // 'Atomic' data for this Zone
+    state: ZoneState,         // Current state of Zone
+    manager: ManagerHandle,   // Handle to manager
+    handle: ZoneHandle,       // Handle to zone
+    rx: Receiver<ZoneCall>,   // Zone message inbox
+    queued: Vec<ZoneCall>,    // When Zone data is not active, queue up all commands
     listeners: Vec<Listener>, // List of binds
     writes: u64               // Number of writes since last fragment check
     // TODO: size: u64,
@@ -65,6 +77,10 @@ impl ZoneHandle {
         rx.recv().unwrap()
     }
 
+    pub fn load(&self) {
+        self.tx.send(ZoneCall::Load).unwrap();
+    }
+
     pub fn merge(&self, parent_vis: Vis, diff: Node) {
         self.tx.send(ZoneCall::Merge(parent_vis, diff)).unwrap();
     }
@@ -75,26 +91,67 @@ impl ZoneHandle {
         self.tx.send(ZoneCall::Size(tx)).unwrap();
         rx.recv().unwrap()
     }
+
+    /// Gets current `ZoneState`
+    pub fn state(&self) -> ZoneState {
+        let (tx, rx) = channel();
+
+        self.tx.send(ZoneCall::State(tx)).unwrap();
+        rx.recv().unwrap()
+    }
+}
+
+impl ZoneState {
+    const INIT: u64    = 0;
+    const LOADING: u64 = 1;
+    const ACTIVE: u64  = 2;
+    const DIRTY: u64   = 3;
+    const WRITING: u64 = 4;
+
+    /// Zone is waiting (for enough resources) to load data. User commands are queued.
+    pub fn is_init(&self) -> bool { self.state == ZoneState::INIT }
+
+    /// Zone is waiting for data to load. User commands are queued
+    pub fn is_loading(&self) -> bool { self.state == ZoneState::LOADING }
+
+    /// Zone is ready to accept user commands: data is loaded and clean
+    pub fn is_active(&self) -> bool { self.state == ZoneState::ACTIVE }
+
+    /// Zone has dirty data: write requested or pending
+    pub fn is_dirty(&self) -> bool { self.state == ZoneState::DIRTY }
+
+    /// Write pending, data will be clean when done
+    pub fn is_writing(&self) -> bool { self.state == ZoneState::WRITING }
+
+    /// Data is ready, allow reads and writes
+    pub fn is_ready(&self) -> bool { self.state >= ZoneState::ACTIVE }
+
+    /// Set to specified state
+    pub fn set(&mut self, state: u64) {
+        assert!(state <= ZoneState::WRITING);
+        self.state = state;
+    }
 }
 
 impl Zone {
     pub fn spawn(manager: ManagerHandle, path: &Path) -> ZoneHandle {
-        let (tx, rx) = channel();
-
         let zone = Zone::new(manager, path);
+
+        let handle = zone.handle.clone();
 
         let name = path.path.join(".");
 
         mioco::spawn(move|| {
-            zone.message_loop(rx);
+            zone.message_loop();
         });
 
-        ZoneHandle { tx: tx }
+        handle
     }
 
     pub fn new(manager: ManagerHandle, path: &Path) -> Zone {
+        let (tx, rx) = channel();
+
         Zone {
-            manager: manager,
             path: path.clone(),
             data: ZoneData {
                 node: Node::expand(Value::Null, 0),
@@ -103,14 +160,19 @@ impl Zone {
                     _ => Default::default()
                 }
             },
+            state: Default::default(),
+            manager: manager,
+            handle: ZoneHandle { tx: tx },
+            rx: rx,
+            queued: vec![],
             listeners: vec![],
             writes: 0
         }
     }
 
-    fn message_loop(mut self, rx: Receiver<ZoneCall>) {
+    fn message_loop(mut self) {
         loop {
-            let call = rx.recv().unwrap();
+            let call = self.rx.recv().unwrap();
 
             match call {
                 ZoneCall::UserCommand(cmd) => {
@@ -118,11 +180,17 @@ impl Zone {
 
                     cmd.reply.send(result).unwrap(); // TODO: don't crash the Zone!
                 },
+                ZoneCall::Load => {
+                    self.load();
+                },
                 ZoneCall::Merge(vis, diff) => {
                     self.merge(vis, diff);
                 },
                 ZoneCall::Size(reply) => {
                     reply.send(self.size()).unwrap();
+                },
+                ZoneCall::State(reply) => {
+                    reply.send(self.state()).unwrap();
                 }
             }
 
@@ -207,9 +275,22 @@ impl Zone {
         self.data.node.read(self.data.vis, path)
     }
 
+    /// Load data if not already loaded. Usually called by `Manager` when sufficient memory is available
+    pub fn load(&mut self) {
+        if ! self.state.is_ready() {
+            self.manager.store.load(&self.handle, &self.path);
+            self.state.set(ZoneState::LOADING);
+        }
+    }
+
     /// Get estimated size
     pub fn size(&self) -> usize {
         self.data.node.max_bytes_path().0
+    }
+
+    /// Get zone state
+    pub fn state(&self) -> ZoneState {
+        self.state
     }
 
     /// Writes value(s) to the node at `path` at time `ts`
@@ -243,4 +324,28 @@ impl Zone {
             }
         }
     }
+}
+
+#[test]
+fn test_zone_state() {
+    let mut state: ZoneState = Default::default();
+
+    assert!(state.is_init());
+    assert!(!state.is_ready());
+
+    state.set(ZoneState::LOADING);
+    assert!(state.is_loading());
+    assert!(!state.is_ready());
+
+    state.set(ZoneState::ACTIVE);
+    assert!(state.is_active());
+    assert!(state.is_ready());
+
+    state.set(ZoneState::DIRTY);
+    assert!(state.is_dirty());
+    assert!(state.is_ready());
+
+    state.set(ZoneState::WRITING);
+    assert!(state.is_writing());
+    assert!(state.is_ready());
 }

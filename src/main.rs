@@ -2,6 +2,8 @@
 
 #![recursion_limit="128"]
 
+#![feature(associated_consts)]
+
 #[macro_use]
 extern crate mioco;
 extern crate serde;
@@ -17,13 +19,15 @@ pub mod node;
 pub mod path;
 pub mod shell;
 pub mod server;
+pub mod store;
 pub mod value;
 pub mod zone;
 
 fn main() {
     println!("Qumulus v0.0.1");
 
-    let manager = manager::Manager::spawn();
+    let store = store::Store::spawn();
+    let manager = manager::Manager::spawn(store);
 
     let path = path::Path::empty();
     manager.load(&path);

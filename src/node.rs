@@ -24,7 +24,7 @@ pub struct Vis {
     deleted: u64
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Node {
     vis: Vis,
     value: Value,
