@@ -21,11 +21,13 @@ pub struct ZoneData {
     vis: Vis    // Visibility of this Zone through ancestors
 }
 
+/// Public shareable handle to a `Zone`
 #[derive(Clone)]
 pub struct ZoneHandle {
     tx: Sender<ZoneCall>
 }
 
+/// Zones communicate via message passing. This enum is a list of valid calls.
 enum ZoneCall {
     UserCommand(UserCommand),
     Load,
@@ -155,8 +157,8 @@ impl Zone {
             path: path.clone(),
             data: ZoneData {
                 node: Node::expand(Value::Null, 0),
-                vis: match path.path.len() {
-                    0 => Vis::new(1, 0),
+                vis: match path.len() {
+                    0 => Vis::permanent(),
                     _ => Default::default()
                 }
             },
@@ -275,7 +277,7 @@ impl Zone {
         self.data.node.read(self.data.vis, path)
     }
 
-    /// Load data if not already loaded. Usually called by `Manager` when sufficient memory is available
+    /// Load data if not already loaded. Usually called by `Manager` when sufficient memory is available.
     pub fn load(&mut self) {
         if ! self.state.is_ready() {
             self.manager.store.load(&self.handle, &self.path);
@@ -288,7 +290,7 @@ impl Zone {
         self.data.node.max_bytes_path().0
     }
 
-    /// Get zone state
+    /// Get zone state.
     pub fn state(&self) -> ZoneState {
         self.state
     }

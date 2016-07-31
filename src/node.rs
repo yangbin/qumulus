@@ -75,27 +75,37 @@ macro_rules! map(
 );
 
 impl Vis {
+    /// Creates a new `Vis` with given `updated` and `deleted` timestamps.
     pub fn new(updated: u64, deleted: u64) -> Vis {
         Vis { updated: updated, deleted: deleted }
     }
 
-    /// Returns new effective visibility given child visibility
+    /// Creates a new `Vis` with given `updated` timestamp.
+    pub fn update(updated: u64) -> Vis { Vis::new(updated, 0) }
+
+    /// Creates a new `Vis` with given `deleted` timestamp.
+    pub fn delete(deleted: u64) -> Vis { Vis::new(0, deleted) }
+
+    /// Returns a `Vis` that's always visible.
+    pub fn permanent() -> Vis { Vis::update(u64::max_value()) }
+
+    /// Returns new effective visibility given child visibility.
     pub fn descend(&mut self, child: &Vis) {
         if child.updated < self.updated { self.updated = child.updated }
         if child.deleted > self.deleted { self.deleted = child.deleted }
     }
 
-    /// Returns true if merging this `Vis` does nothing. Also `Default::default()`
+    /// Returns true if merging this `Vis` does nothing. Also `Default::default()`.
     pub fn is_noop(&self) -> bool {
         self.updated == 0 && self.deleted == 0
     }
 
-    /// Returns visibility of `Vis`
+    /// Returns visibility of `Vis`.
     pub fn is_visible(&self) -> bool {
         self.updated > self.deleted
     }
 
-    /// Resolve `Vis` conflicts by keeping newest data
+    /// Resolve `Vis` conflicts by keeping newest data.
     pub fn merge(&mut self, diff: &Vis) {
         if diff.updated > self.updated {
             self.updated = diff.updated;
@@ -110,7 +120,7 @@ impl Vis {
 impl Default for Node {
     fn default() -> Node {
         Node {
-            vis: Vis { updated: 0, deleted: 0 },
+            vis: Default::default(),
             value: Value::Null,
             keys: None,
             delegated: 0
@@ -119,18 +129,17 @@ impl Default for Node {
 }
 
 impl Node {
+    /// Creates a `Node` representing a recursive delete with given `timestamp`.
     pub fn delete(timestamp: u64) -> Node {
         Node {
-            vis: Vis {
-                deleted: timestamp,
-                ..Default::default()
-             },
+            vis: Vis::delete(timestamp),
              ..Default::default()
         }
     }
 
+    /// Expands JSON data to a `Node` representation creating each node at given `timestamp`.
     pub fn expand(data: JSON, timestamp: u64) -> Node {
-        let vis = Vis { updated: timestamp, ..Default::default() };
+        let vis = Vis::update(timestamp);
 
         match data {
             JSON::Null => Node { vis: vis, value: Value::Null, ..Default::default() },
@@ -184,9 +193,7 @@ impl Node {
 
     pub fn delegate(timestamp: u64) -> Node {
         Node {
-            vis: Vis {
-                ..Default::default()
-             },
+            vis: Default::default(),
              delegated: timestamp | 1,
              ..Default::default()
         }
@@ -194,9 +201,7 @@ impl Node {
 
     pub fn undelegate(timestamp: u64) -> Node {
         Node {
-            vis: Vis {
-                ..Default::default()
-             },
+            vis: Default::default(),
              delegated: timestamp & !1,
              ..Default::default()
         }
@@ -671,17 +676,11 @@ fn test_expand() {
     let node = Node::expand(data, 1000);
 
     let expected = Node {
-        vis: Vis {
-            updated: 1000,
-            deleted: 0
-        },
+        vis: Vis::new(1000, 0),
         value:  Value::Null,
         keys: Some(map! {
             "moo".to_string() => Node {
-                vis: Vis {
-                    updated: 1000,
-                    deleted: 0
-                },
+                vis: Vis::new(1000, 0),
                 value: Value::U64(42),
                 keys: None,
                 delegated: 0
