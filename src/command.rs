@@ -33,13 +33,13 @@ impl Command {
         }
 
         let id   = try!(data[0].as_u64().ok_or("Bad ID"));
-        let call = try!(data[1].as_string().ok_or("Bad call"));
+        let call = try!(data[1].as_str().ok_or("Bad call"));
         let path = try!(data[2].as_array().ok_or("Bad path"));
 
         let mut path_string: Vec<String> = vec![];
 
         for p in path.iter() {
-            path_string.push(try!(p.as_string().ok_or("Bad path")).to_string());
+            path_string.push(try!(p.as_str().ok_or("Bad path")).to_string());
         }
 
         let params = data[3].clone();
