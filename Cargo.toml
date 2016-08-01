@@ -4,7 +4,9 @@ version = "0.1.0"
 authors = ["Kwok Yang Bin <yangbin@fragnetics.com>"]
 
 [dependencies]
+bincode = "*"
 mioco = { git = "https://github.com/dpc/mioco.git" }
 serde = "*"
 serde_json = "*"
+serde_macros = "*"
 time = "*"

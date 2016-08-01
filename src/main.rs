@@ -3,8 +3,13 @@
 #![recursion_limit="128"]
 
 #![feature(associated_consts)]
+#![feature(custom_derive)]
+#![feature(plugin)]
+
+#![plugin(serde_macros)]
 
 #[macro_use]
+extern crate bincode;
 extern crate mioco;
 extern crate serde;
 extern crate serde_json;
@@ -26,7 +31,7 @@ pub mod zone;
 fn main() {
     println!("Qumulus v0.0.1");
 
-    let store = store::Store::spawn();
+    let store = store::fs::FS::spawn("data");
     let manager = manager::Manager::spawn(store);
 
     let path = path::Path::empty();

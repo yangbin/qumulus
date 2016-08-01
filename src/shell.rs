@@ -47,8 +47,9 @@ impl<W: Write> Shell<W> {
         for z in active_zones {
             let path = z.0.path.join(".");
             let size = z.1.size();
+            let state = z.1.state();
 
-            writeln!(self.writer, "{:>8} {}", size, path).unwrap();
+            writeln!(self.writer, "{:>8} {:?} {:?}", size, state, path).unwrap();
         }
 
         writeln!(self.writer, "Total: {} active zones", len).unwrap();

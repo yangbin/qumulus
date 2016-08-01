@@ -15,7 +15,7 @@ use manager::ManagerHandle;
 use node::{DelegatedMatch, Node, Update, Vis};
 use path::Path;
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct ZoneData {
     node: Node, // Mergeable data for this Zone
     vis: Vis    // Visibility of this Zone through ancestors
@@ -31,7 +31,10 @@ pub struct ZoneHandle {
 enum ZoneCall {
     UserCommand(UserCommand),
     Load,
+    Loaded(ZoneData),
     Merge(Vis, Node),
+    Save,
+    Saved,
     Size(Sender<usize>),
     State(Sender<ZoneState>)
 }
@@ -79,12 +82,28 @@ impl ZoneHandle {
         rx.recv().unwrap()
     }
 
+    /// Signal `Zone` to load data. Usually called by `Manager`.
     pub fn load(&self) {
         self.tx.send(ZoneCall::Load).unwrap();
     }
 
+    /// Signal `Zone` with loaded data. Usually called by `Store` with loaded data.
+    pub fn loaded(&self, data: ZoneData) {
+        self.tx.send(ZoneCall::Loaded(data)).unwrap();
+    }
+
     pub fn merge(&self, parent_vis: Vis, diff: Node) {
         self.tx.send(ZoneCall::Merge(parent_vis, diff)).unwrap();
+    }
+
+    /// Signal `Zone` to the zone to save data. Usually called by `Store` to indicate write-readiness.
+    pub fn save(&self) {
+        self.tx.send(ZoneCall::Save).unwrap();
+    }
+
+    /// Signal `Zone` that save has completed. Usually called by `Store` after write completes.
+    pub fn saved(&self) {
+        self.tx.send(ZoneCall::Saved).unwrap();
     }
 
     pub fn size(&self) -> usize {
@@ -176,27 +195,53 @@ impl Zone {
         loop {
             let call = self.rx.recv().unwrap();
 
-            match call {
-                ZoneCall::UserCommand(cmd) => {
-                    let result = self.dispatch(cmd.command, &cmd.listener);
-
-                    cmd.reply.send(result).unwrap(); // TODO: don't crash the Zone!
-                },
-                ZoneCall::Load => {
-                    self.load();
-                },
-                ZoneCall::Merge(vis, diff) => {
-                    self.merge(vis, diff);
-                },
-                ZoneCall::Size(reply) => {
-                    reply.send(self.size()).unwrap();
-                },
-                ZoneCall::State(reply) => {
-                    reply.send(self.state()).unwrap();
+            if self.state.is_ready() {
+                self.handle_call(call);
+            }
+            else {
+                match call {
+                    ZoneCall::Load |
+                    ZoneCall::Loaded(_) |
+                    ZoneCall::Size(_) |
+                    ZoneCall::State(_) => {
+                        self.handle_call(call);
+                    },
+                    _ => self.queued.push(call)
                 }
             }
 
             self.split_check();
+        }
+    }
+
+    fn handle_call(&mut self, call: ZoneCall) {
+        match call {
+            ZoneCall::UserCommand(cmd) => {
+                let result = self.dispatch(cmd.command, &cmd.listener);
+
+                cmd.reply.send(result).unwrap(); // TODO: don't crash the Zone!
+            },
+            ZoneCall::Load => {
+                self.load();
+            },
+            ZoneCall::Loaded(data) => {
+                self.loaded(data);
+            },
+            ZoneCall::Merge(vis, diff) => {
+                self.merge(vis, diff);
+            },
+            ZoneCall::Save => {
+                self.save();
+            },
+            ZoneCall::Saved => {
+                self.saved();
+            },
+            ZoneCall::Size(reply) => {
+                reply.send(self.size()).unwrap();
+            },
+            ZoneCall::State(reply) => {
+                reply.send(self.state()).unwrap();
+            }
         }
     }
 
@@ -259,6 +304,7 @@ impl Zone {
         if let Some(update) = update {
             self.notify(&update);
             self.writes += 1;
+            self.dirty();
         }
 
         if externals.len() > 0 {
@@ -285,8 +331,55 @@ impl Zone {
         }
     }
 
-    /// Get estimated size
+    /// Callback for stores to send loaded data to `Zone`. Usually called by a `Store` process.
+    pub fn loaded(&mut self, mut data: ZoneData) {
+        if ! self.state.is_ready() {
+            if self.path.len() == 0 {
+                data.vis = Vis::permanent();
+            }
+
+            self.data = data;
+            self.state.set(ZoneState::ACTIVE);
+
+            let queued = self.queued.split_off(0);
+
+            for call in queued {
+                self.handle_call(call);
+            }
+        }
+        else {
+            unimplemented!()
+        }
+    }
+
+    /// Callback to notify Zone that resources are able to persist dirty data
+    pub fn save(&mut self) {
+        if self.state.is_dirty() {
+            self.manager.store.write(&self.handle, &self.path, &self.data);
+            self.state.set(ZoneState::WRITING);
+        }
+        else {
+            println!("Spurious save callback in {:?}", &self.path);
+        }
+    }
+
+    /// Callback to notify Zone that data was persisted
+    pub fn saved(&mut self) {
+        if self.state.is_writing() {
+            self.state.set(ZoneState::ACTIVE);
+        }
+        else if self.state.is_dirty() {
+            // Zone dirtied itself during a write
+            self.manager.store.request_write(&self.handle);
+        }
+        else {
+            unimplemented!();
+        }
+    }
+
+    /// Get estimated size.
     pub fn size(&self) -> usize {
+        // TODO: size does not include cloaked data
         self.data.node.max_bytes_path().0
     }
 
@@ -301,6 +394,27 @@ impl Zone {
         let diff = Node::expand_from(&path.path[..], value, ts);
 
         self.merge(Default::default(), diff);
+    }
+
+    fn dirty(&mut self) {
+        if self.state.is_dirty() {
+            return; // already dirty
+        }
+
+        if self.state.is_active() {
+            self.manager.store.request_write(&self.handle);
+            self.state.set(ZoneState::DIRTY);
+
+            return;
+        }
+
+        if self.state.is_writing() {
+            self.state.set(ZoneState::DIRTY);
+
+            return;
+        }
+
+        unimplemented!();
     }
 
     fn notify(&self, update: &Update) {
@@ -324,6 +438,15 @@ impl Zone {
             if let Some(delegate_node) = delegate(&self.data.node) {
                 self.merge(Default::default(), delegate_node);
             }
+        }
+    }
+}
+
+impl ZoneData {
+    pub fn new(vis: Vis, node: Node) -> ZoneData {
+        ZoneData {
+            node: node,
+            vis: vis
         }
     }
 }

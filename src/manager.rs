@@ -165,9 +165,9 @@ impl Manager {
 
 #[test]
 fn test_find_nearest() {
-    use store::Store;
+    use store;
 
-    let store = Store::spawn();
+    let store = store::null::Null::spawn();
     let mut manager = Manager::new(store);
 
     let root        = Path::new(vec![]);
@@ -193,9 +193,9 @@ fn test_find_nearest() {
 
 #[test]
 fn test_load() {
-    use store::Store;
+    use store;
 
-    let store = Store::spawn();
+    let store = store::null::Null::spawn();
     let mut manager = Manager::new(store);
     let root = Path::new(vec![]);
     let zone = manager.load(&root);

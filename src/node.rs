@@ -18,13 +18,13 @@ use path::Path;
 use value::Value;
 
 /// Tracks visibility of a node
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct Vis {
     updated: u64,
     deleted: u64
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Node {
     vis: Vis,
     value: Value,

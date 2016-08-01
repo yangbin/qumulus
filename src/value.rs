@@ -1,5 +1,6 @@
 /// Leaf value storable in Node
-#[derive(Clone, Debug, PartialEq)]
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub enum Value {
     /// Represents a JSON null value
     Null,
