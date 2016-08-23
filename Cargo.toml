@@ -9,4 +9,5 @@ mioco = { git = "https://github.com/dpc/mioco.git" }
 serde = "*"
 serde_json = "*"
 serde_macros = "*"
+threadpool = "*"
 time = "*"

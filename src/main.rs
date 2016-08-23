@@ -13,6 +13,7 @@ extern crate bincode;
 extern crate mioco;
 extern crate serde;
 extern crate serde_json;
+extern crate threadpool;
 extern crate time;
 
 pub mod client;

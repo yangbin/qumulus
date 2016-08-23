@@ -8,23 +8,26 @@ use std::hash::{Hash, Hasher, SipHasher};
 use std::io::ErrorKind;
 use std::io::prelude::*;
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 
 use bincode;
+use threadpool::ThreadPool;
 
 use super::*;
 use path::Path;
 use zone::{ZoneData, ZoneHandle};
+
+const NUM_THREADS: usize = 8;
 
 pub struct FS {
     dir: std::path::PathBuf,
     rx: Receiver<StoreCall>,
     tx: Sender<StoreCall>,
 
-    /// Count of pending writes
-    pending_writes: Arc<AtomicUsize>,
+    read_pool: ThreadPool,
+    write_pool: ThreadPool,
+
     write_queue: Arc<Mutex<VecDeque<ZoneHandle>>>
 }
 
@@ -56,7 +59,8 @@ impl FS {
             dir: dir,
             tx: tx,
             rx: rx,
-            pending_writes: Arc::new(AtomicUsize::new(0)),
+            read_pool: ThreadPool::new(NUM_THREADS),
+            write_pool: ThreadPool::new(NUM_THREADS),
             write_queue: Arc::new(Mutex::new(VecDeque::new()))
         }
     }
@@ -84,7 +88,7 @@ impl FS {
         let mut filepath = self.dir.clone();
 
         // TODO threadpool
-        thread::spawn(move|| {
+        self.read_pool.execute(move|| {
             println!("Loading: {:?}", path);
 
             let filename = zonefilename(&path);
@@ -107,9 +111,8 @@ impl FS {
 
     /// Request for notification to write data.
     pub fn request_write(&self, zone: ZoneHandle) {
-        let count = self.pending_writes.load(Ordering::Relaxed);
-
-        if count > 10 {
+        if self.write_pool.active_count() >= NUM_THREADS {
+            // No write slots available, save for later
             self.write_queue.lock().unwrap().push_back(zone);
         }
         else {
@@ -122,14 +125,11 @@ impl FS {
         let path = path.clone();
         let mut filepath = self.dir.clone();
 
-        let count = self.pending_writes.clone();
         let pending = self.write_queue.clone();
 
         // TODO threadpool
-        thread::spawn(move|| {
-            println!("Writing {}: {:?}", count.load(Ordering::Relaxed), path);
-
-            count.fetch_add(1, Ordering::Relaxed);
+        self.write_pool.execute(move|| {
+            println!("Writing: {:?}", path);
 
             let filename = zonefilename(&path);
 
@@ -147,10 +147,9 @@ impl FS {
                 Ok(_) => zone.saved()
             };
 
-            count.fetch_sub(1, Ordering::Relaxed);
-
             let mut pending = pending.lock().unwrap();
 
+            // "Wake" any zones waiting to write
             if let Some(zone) = pending.pop_front() {
                 zone.save();
             }
