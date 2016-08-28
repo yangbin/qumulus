@@ -379,8 +379,8 @@ impl Zone {
 
     /// Get estimated size.
     pub fn size(&self) -> usize {
-        // TODO: size does not include cloaked data
-        self.data.node.max_bytes_path().0
+        // TODO: size does not handle cloaked data properly
+        self.data.node.total_byte_size()
     }
 
     /// Get zone state.

@@ -9,7 +9,7 @@
 //! Deleted data leave meta information as tombstones which are occasionally cleared [TODO].
 
 use std::collections::BTreeMap;
-use std::collections::btree_map::Entry;
+use std::collections::btree_map::{Entry, Iter};
 use std::mem;
 
 use serde_json::Value as JSON;
@@ -236,7 +236,24 @@ impl Node {
         self.vis.is_noop() && self.value == Value::Null && self.keys.is_none()
     }
 
-    /// Returns the estimated byte size of storing this node
+    /// Returns number of child nodes.
+    pub fn len(&self) -> usize {
+        match self.keys {
+            None => 0,
+            Some(ref keys) => keys.len()
+        }
+    }
+
+    /// Returns an iterator over the children.
+    pub fn each_child<F>(&self, mut f: F) where F: FnMut(&String, &Node) {
+        if let Some(ref keys) = self.keys {
+            for (k, node) in keys {
+                f(k, node);
+            }
+        }
+    }
+
+    /// Returns the estimated byte size of storing this node's value.
     pub fn byte_size(&self) -> usize {
         match self.value {
             Value::Bool(_) => 1,
@@ -246,39 +263,30 @@ impl Node {
         }
     }
 
-    /// Returns estimated byte size and the path from a leaf node to the root where each step of the
-    /// path is the largest node and its size.
-    ///
-    /// TODO: This doesn't feel like it should be here
-    pub fn max_bytes_path(&self) -> (usize, Vec<(String, usize)>) {
-        let mut byte_size = self.byte_size();
+    /// Returns the estimated byte size of this node including children.
+    pub fn total_byte_size(&self) -> usize {
+        let mut total_size = self.byte_size();
 
-        if let Some(ref node_keys) = self.keys {
-            let mut largest_k = "";
-            let mut largest_size = 0;
-            let mut max_path = vec![];
+        self.each_child(|k, child_node| {
+            total_size += k.len() + child_node.total_byte_size();
+        });
 
-            for (k, node_child) in node_keys.iter() {
-                let (c_byte_size, c_max_path) = node_child.max_bytes_path();
+        total_size
+    }
 
-                byte_size += k.len() + c_byte_size;
+    /// Adds a child Node with given key.
+    pub fn add_child(&mut self, k: String, child: Node) {
+        match self.keys {
+            None => {
+                let mut keys = BTreeMap::new();
 
-                if c_byte_size > largest_size {
-                    largest_size = c_byte_size;
-                    largest_k = k;
-                    max_path = c_max_path;
-                }
+                keys.insert(k, child);
+                self.keys = Some(keys);
+            },
+            Some(ref mut keys) => {
+                keys.insert(k, child);
             }
-
-            if largest_size > 0 {
-                max_path.push((largest_k.to_string(), largest_size));
-            }
-
-            (byte_size, max_path)
-        }
-        else {
-            (byte_size, vec![])
-        }
+        };
     }
 
     /// Unified merge function - merges `diff` into `self` and returns changes.

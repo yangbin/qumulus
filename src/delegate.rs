@@ -1,6 +1,8 @@
 //! Contains functions to help measure size / population statistics of Nodes and help decide the
 //! appropriate points in the tree to partition as Zones.
 
+use std::collections::BinaryHeap;
+
 use time;
 
 use node::Node;
@@ -10,47 +12,50 @@ use path::Path;
 pub fn delegate(node: &Node) -> Option<Node> {
     // TODO: allow other strategies
 
-    let path = delegate_largest_innermost_parent(node);
-
-    match path {
-        Some(path) => {
-            if path.len() > 0 {
-                Some(Node::delegate(time::precise_time_ns()).prepend_path(&path.path))
-            }
-            else {
-                None
-            }
-        },
-        None => None
-    }
+    let (_, delegate_node) = check_node(node);
+    delegate_node
 }
 
-/// This algorithm delegates the parent whose total size is closest to half the top-level size
-pub fn delegate_largest_innermost_parent(node: &Node) -> Option<Path> {
-    let (size, mut max_path) = node.max_bytes_path();
+fn check_node(node: &Node) -> (usize, Option<Node>) {
+    let mut delegate_node: Node = Default::default();
+    let mut total_size = node.byte_size();
 
-    let mut path = vec![];
+    if total_size > 32768 {
+        // TODO: delegate this Node if value stored here is e.g. > 32k
+    }
+    // TODO: handle if Node has many children, e.g. > 10000
+    else {
+        // recursively check if children need to be delegated
 
-    if size > 64000 { // TODO: make configurable
-        let target_size = size as i64 >> 1;
-        let mut min_diff = size as i64;
+        let mut largest_children = BinaryHeap::new();
 
-        for (key, size) in max_path.drain(..) {
-            let this_diff = (size as i64 - target_size).abs();
+        node.each_child(|k, child_node| {
+            let (mut child_size, child_delegations) = check_node(child_node);
 
-            if this_diff < min_diff {
-                min_diff = this_diff;
-                path.clear();
+            if let Some(child_delegations) = child_delegations {
+                delegate_node.add_child(k.clone(), child_delegations);
             }
 
-            path.push(key);
+            child_size += k.len();
+            total_size += child_size;
+
+            if child_size > 1024 {
+                largest_children.push( (child_size, k.clone()) );
+            }
+        });
+
+        while total_size > 65535 {
+            if let Some( (child_size, k) ) = largest_children.pop() {
+                delegate_node.add_child(k.clone(), Node::delegate(time::precise_time_ns()));
+                total_size -= child_size;
+            }
+            else {
+                break;
+            }
         }
-
-        path.reverse();
-
-        Some(Path::new(path))
     }
-    else {
-        None
-    }
+
+    let delegate_node = if delegate_node.is_noop() { None } else { Some(delegate_node) };
+
+    (total_size, delegate_node)
 }
