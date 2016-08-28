@@ -403,6 +403,8 @@ fn merge(
         }
 
         node.vis.updated = diff.vis.updated;
+
+        // TODO: propagation should depend on effective vis changes instead
         propagate = Some(Default::default());
     }
     else if diff.vis.updated < node.vis.updated {
@@ -474,6 +476,7 @@ fn merge(
             for (k, node_child) in node_keys.iter_mut() {
                 stack.push(k);
 
+                // TODO: p_node is mutable and will get corrupted by child nodes
                 let child_diff = merge(stack, node_child, &mut p_node, vis_old, vis_new, externals);
 
                 stack.pop();
@@ -523,7 +526,10 @@ fn merge(
     }
 
     // Handle delegation
-    if stack.len() > 0 && node.delegated & 1 > 0 {
+    if stack.len() > 0 && node.delegated & 1 > 0 && (node.keys.is_some() || node.value != Value::Null) {
+        // TODO: add externals if effective vis changes
+        // TODO: handle un-delegation
+
         let external = External {
             path: stack.clone(),
             parent_vis: vis_new,
