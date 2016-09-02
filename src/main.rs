@@ -8,8 +8,9 @@
 
 #![plugin(serde_macros)]
 
-#[macro_use]
 extern crate bincode;
+extern crate env_logger;
+#[macro_use] extern crate log;
 extern crate mioco;
 extern crate serde;
 extern crate serde_json;
@@ -30,6 +31,8 @@ pub mod value;
 pub mod zone;
 
 fn main() {
+    env_logger::init().unwrap();
+
     println!("Qumulus v0.0.1");
 
     let store = store::fs::FS::spawn("data");

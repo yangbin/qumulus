@@ -5,6 +5,8 @@ authors = ["Kwok Yang Bin <yangbin@fragnetics.com>"]
 
 [dependencies]
 bincode = "*"
+env_logger = "*"
+log = "*"
 mioco = { git = "https://github.com/dpc/mioco.git" }
 serde = "*"
 serde_json = "*"

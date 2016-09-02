@@ -89,18 +89,18 @@ impl FS {
 
         // TODO threadpool
         self.read_pool.execute(move|| {
-            println!("Loading: {:?}", path);
+            debug!("Loading: {:?}", path);
 
             let filename = zonefilename(&path);
 
             filepath.push(filename);
 
-            println!("reading {}", filepath.display());
+            debug!("reading {}", filepath.display());
 
             match blocking_read(&*filepath) {
                 Err(err) => {
-                    println!("Error loading {:?} - {}: {}", path, filepath.display(), err.description());
-                    println!("{:?}", err);
+                    error!("Error loading {:?} - {}: {}", path, filepath.display(), err.description());
+                    error!("{:?}", err);
                     // TODO: set Zone to error state
                     //zone.set_error(err);
                 },
@@ -129,18 +129,18 @@ impl FS {
 
         // TODO threadpool
         self.write_pool.execute(move|| {
-            println!("Writing: {:?}", path);
+            debug!("Writing: {:?}", path);
 
             let filename = zonefilename(&path);
 
             filepath.push(filename);
 
-            println!("writing {}", filepath.display());
+            debug!("writing {}", filepath.display());
 
             match blocking_write(&*filepath, data) {
                 Err(err) => {
-                    println!("Error writing {:?} - {}: {}", path, filepath.display(), err.description());
-                    println!("{:?}", err);
+                    error!("Error writing {:?} - {}: {}", path, filepath.display(), err.description());
+                    error!("{:?}", err);
                     // TODO set Zone to error state
                     //zone.set_error(err);
                 },
@@ -158,7 +158,7 @@ impl FS {
 }
 
 fn blocking_read(filepath: &std::path::Path) -> Result<ZoneData, StoreError> {
-    println!("blocking_read: {:?}", filepath);
+    debug!("blocking_read: {:?}", filepath);
 
     let mut file = match File::open(filepath) {
         Err(err) => {
@@ -167,12 +167,12 @@ fn blocking_read(filepath: &std::path::Path) -> Result<ZoneData, StoreError> {
                     return Ok(Default::default())
                 },
                 _ => {
-                    println!("  Error loading {}: {}", filepath.display(), err.description());
-                    println!("    {:?}", err);
+                    error!("  Error loading {}: {}", filepath.display(), err.description());
+                    error!("    {:?}", err);
                 }
             }
 
-            println!("IO error: {}", err.description());
+            error!("IO error: {}", err.description());
 
             return Err(StoreError::ReadError(Box::new(err)));
         },
@@ -187,8 +187,8 @@ fn blocking_read(filepath: &std::path::Path) -> Result<ZoneData, StoreError> {
     }
 
     match bincode::serde::deserialize(&buffer) {
-        Err(err) =>{
-            println!("err {}:", err.description());
+        Err(err) => {
+            error!("err {}:", err.description());
             Err(StoreError::ReadError(Box::new(err)))
         },
         Ok(data) => Ok(data)
@@ -196,16 +196,16 @@ fn blocking_read(filepath: &std::path::Path) -> Result<ZoneData, StoreError> {
 }
 
 fn blocking_write(filepath: &std::path::Path, data: ZoneData) -> Result<(), StoreError> {
-    println!("blocking_write: {:?}", filepath);
+    debug!("blocking_write: {:?}", filepath);
 
     let tmp_path = filepath.with_extension("tmp");
 
     let mut file = match File::create(&tmp_path) {
         Err(err) => {
-            println!("  Error loading {}: {}", filepath.display(), err.description());
-            println!("    {:?}", err);
+            error!("  Error loading {}: {}", filepath.display(), err.description());
+            error!("    {:?}", err);
 
-            println!("IO error: {}", err.description());
+            error!("IO error: {}", err.description());
 
             return Err(StoreError::ReadError(Box::new(err)));
         },
