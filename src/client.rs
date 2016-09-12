@@ -2,7 +2,7 @@
 
 use std::collections::VecDeque;
 use std::io::prelude::*;
-use std::io::{BufReader, BufWriter};
+use std::io::BufReader;
 use std::mem;
 use std::sync::Arc;
 use std::time::Duration;
@@ -97,16 +97,15 @@ impl Client {
     }
 
     fn create_writer_thread(&self, channel: Receiver<String>) {
-        let mut writer = BufWriter::new(self.stream.try_clone().unwrap());
+        let mut writer = self.stream.try_clone().unwrap();
 
         mioco::spawn(move|| {
             loop {
                 let message = channel.recv().unwrap();
 
                 // TODO: test socket for writability
-                writer.write(message.as_bytes()).unwrap();
+                writer.write_all(message.as_bytes()).unwrap();
                 writer.write(b"\n").unwrap();
-                writer.flush().unwrap();
             }
         });
     }
