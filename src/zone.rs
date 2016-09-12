@@ -1,7 +1,10 @@
 //! Owns a subtree of entire tree, also unit of concurrency
 //!
-//! The Zone structure represents the subtree and is run as a thread.
-//! ZoneHandle is the public interface to a single zone.
+//! The `Zone` structure represents the subtree and is owned by a single thread.
+//!
+//! `ZoneHandle` is the shareable / clonable public interface to a `Zone`.
+
+use std::sync::Arc;
 
 use mioco;
 use mioco::sync::mpsc::{channel, Receiver, Sender};
@@ -24,6 +27,7 @@ pub struct ZoneData {
 /// Public shareable handle to a `Zone`
 #[derive(Clone)]
 pub struct ZoneHandle {
+    path: Arc<Path>,
     tx: Sender<ZoneCall>
 }
 
@@ -58,7 +62,7 @@ pub struct ZoneState {
 }
 
 pub struct Zone {
-    path: Path,               // Path to this Zone
+    path: Arc<Path>,          // Path to this Zone
     data: ZoneData,           // 'Atomic' data for this Zone
     state: ZoneState,         // Current state of Zone
     manager: ManagerHandle,   // Handle to manager
@@ -94,6 +98,10 @@ impl ZoneHandle {
 
     pub fn merge(&self, parent_vis: Vis, diff: Node) {
         self.tx.send(ZoneCall::Merge(parent_vis, diff)).unwrap();
+    }
+
+    pub fn path(&self) -> Path {
+        (*self.path).clone()
     }
 
     /// Signal `Zone` to the zone to save data. Usually called by `Store` to indicate write-readiness.
@@ -172,6 +180,8 @@ impl Zone {
     pub fn new(manager: ManagerHandle, path: &Path) -> Zone {
         let (tx, rx) = channel();
 
+        let path = Arc::new(path.clone());
+
         Zone {
             path: path.clone(),
             data: ZoneData {
@@ -183,7 +193,7 @@ impl Zone {
             },
             state: Default::default(),
             manager: manager,
-            handle: ZoneHandle { tx: tx },
+            handle: ZoneHandle { path: path.clone(), tx: tx },
             rx: rx,
             queued: vec![],
             listeners: vec![],

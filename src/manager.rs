@@ -64,7 +64,7 @@ impl ManagerHandle {
         self.call(ManagerCall::ZoneLoaded(path.clone()))
     }
 
-    pub fn list(&self) -> Vec<(Path, ZoneHandle)> {
+    pub fn list(&self) -> Vec<ZoneHandle> {
         self.call(ManagerCall::List)
     }
 
@@ -158,8 +158,8 @@ impl Manager {
     }
 
     /// List all active zones
-    pub fn list(&self) -> Vec<(Path, ZoneHandle)> {
-        self.active.iter().map( |(p, z)| (p.clone(), z.clone()) ).collect()
+    pub fn list(&self) -> Vec<ZoneHandle> {
+        self.active.values().cloned().collect()
     }
 }
 
