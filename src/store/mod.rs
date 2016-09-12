@@ -12,6 +12,8 @@ use std::error::Error;
 use std::fmt;
 use std::sync::mpsc::Sender;
 
+use bincode;
+
 use path::Path;
 use zone::{ZoneData, ZoneHandle};
 
@@ -25,7 +27,7 @@ pub struct StoreHandle {
 pub enum StoreCall {
     Load(ZoneHandle, Path),
     RequestWrite(ZoneHandle),
-    Write(ZoneHandle, Path, ZoneData)
+    Write(ZoneHandle, Path, Vec<u8>)
 }
 
 /// Storage error that includes generic Error-implementing errors
@@ -49,8 +51,11 @@ impl StoreHandle {
 
     /// Saves data for a zone and notifies zone directly via its handle.
     pub fn write(&self, zone: &ZoneHandle, path: &Path, data: &ZoneData) {
-        // TODO optimize: serialize instead of cloning before sending over channel
-        self.tx.send(StoreCall::Write(zone.clone(), path.clone(), data.clone())).unwrap();
+        // Optimization: seralize to send over channel instead of cloning ZoneData
+        let limit = bincode::SizeLimit::Infinite;
+        let serialized = bincode::serde::serialize(&data, limit).unwrap();
+
+        self.tx.send(StoreCall::Write(zone.clone(), path.clone(), serialized)).unwrap();
     }
 }
 

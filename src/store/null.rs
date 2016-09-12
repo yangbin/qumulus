@@ -5,7 +5,7 @@ use std::thread;
 
 use super::*;
 use path::Path;
-use zone::{ZoneData, ZoneHandle};
+use zone::ZoneHandle;
 
 pub struct Null {
     rx: Receiver<StoreCall>,
@@ -60,7 +60,7 @@ impl Null {
 
     /// Write data for a `Zone` asynchronously, notifying its handle when done.
     /// Not happening either.
-    pub fn write(&self, _: ZoneHandle, _: &Path, _: &ZoneData) {
+    pub fn write(&self, _: ZoneHandle, _: &Path, _: &Vec<u8>) {
     }
 
 }

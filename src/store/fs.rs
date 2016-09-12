@@ -121,7 +121,7 @@ impl FS {
     }
 
     /// Write data for a `Zone` asynchronously, notifying its handle when done.
-    pub fn write(&self, zone: ZoneHandle, path: Path, data: ZoneData) {
+    pub fn write(&self, zone: ZoneHandle, path: Path, data: Vec<u8>) {
         let path = path.clone();
         let mut filepath = self.dir.clone();
 
@@ -195,7 +195,7 @@ fn blocking_read(filepath: &std::path::Path) -> Result<ZoneData, StoreError> {
     }
 }
 
-fn blocking_write(filepath: &std::path::Path, data: ZoneData) -> Result<(), StoreError> {
+fn blocking_write(filepath: &std::path::Path, serialized: Vec<u8>) -> Result<(), StoreError> {
     debug!("blocking_write: {:?}", filepath);
 
     let tmp_path = filepath.with_extension("tmp");
@@ -211,9 +211,6 @@ fn blocking_write(filepath: &std::path::Path, data: ZoneData) -> Result<(), Stor
         },
         Ok(file) => file,
     };
-
-    let limit = bincode::SizeLimit::Infinite;
-    let serialized = bincode::serde::serialize(&data, limit).unwrap();
 
     if let Err(err) = file.write_all(&serialized) {
         return Err(StoreError::WriteError(Box::new(err)));
@@ -271,7 +268,10 @@ fn test_read_write() {
 
     assert_eq!(data, Default::default());
 
-    blocking_write(&file, data.clone()).unwrap();
+    let limit = bincode::SizeLimit::Infinite;
+    let serialized = bincode::serde::serialize(&data, limit).unwrap();
+
+    blocking_write(&file, serialized).unwrap();
 
     assert_eq!(blocking_read(&file).unwrap(), data);
 
@@ -283,7 +283,10 @@ fn test_read_write() {
         Node::expand(JSON::String(String::from("moo")), 1000)
     );
 
-    blocking_write(&file, expected.clone()).unwrap();
+    let limit = bincode::SizeLimit::Infinite;
+    let serialized = bincode::serde::serialize(&expected, limit).unwrap();
+
+    blocking_write(&file, serialized).unwrap();
 
     let verify = blocking_read(&file).unwrap();
 
