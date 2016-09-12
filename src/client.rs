@@ -124,7 +124,16 @@ fn process(manager: &ManagerHandle, tx: &Sender<String>, mut command: Command) {
 
     let mut result = zone.dispatch(c, tx);
 
-    let mut queue: VecDeque<DelegatedMatch> = result.delegated.drain(..).collect();
+    let mut queue: VecDeque<DelegatedMatch> = VecDeque::new();
+
+    for mut d in result.delegated.drain(..) {
+        // Convert relative paths to absolute
+        let mut path = prefix.clone();
+
+        path.append(&mut d.path);
+        d.path = path;
+        queue.push_back(d);
+    }
 
     reply(tx, command.id, queue.len() as u64, &prefix, result.update);
 
@@ -133,24 +142,25 @@ fn process(manager: &ManagerHandle, tx: &Sender<String>, mut command: Command) {
     }
 
     while let Some(delegated) = queue.pop_front() {
-        match manager.find(&delegated.path) {
-            Some(zone) => {
-                let c = Command {
-                    path: delegated.match_spec,
-                    params: Value::Null,
-                    ..command
-                };
+        let zone = manager.load(&delegated.path);
 
-                let result = zone.dispatch(c, tx);
+        let c = Command {
+            path: delegated.match_spec,
+            params: Value::Null,
+            ..command
+        };
 
-                for d in result.delegated {
-                    queue.push_back(d);
-                }
+        let result = zone.dispatch(c, tx);
 
-                reply(tx, command.id, queue.len() as u64, &delegated.path, result.update);
-            },
-            None => unimplemented!()
+        for mut d in result.delegated {
+            let mut path = delegated.path.clone();
+
+            path.append(&mut d.path);
+            d.path = path;
+            queue.push_back(d);
         }
+
+        reply(tx, command.id, queue.len() as u64, &delegated.path, result.update);
     }
 
     fn reply(tx: &Sender<String>, id: u64, left: u64, path: &Path, update: Option<Update>) {
