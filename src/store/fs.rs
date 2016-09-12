@@ -18,7 +18,7 @@ use super::*;
 use path::Path;
 use zone::{ZoneData, ZoneHandle};
 
-const NUM_THREADS: usize = 8;
+const NUM_THREADS: usize = 10;
 
 pub struct FS {
     dir: std::path::PathBuf,

@@ -12,6 +12,7 @@ extern crate bincode;
 extern crate env_logger;
 #[macro_use] extern crate log;
 extern crate mioco;
+extern crate rand;
 extern crate serde;
 extern crate serde_json;
 extern crate threadpool;

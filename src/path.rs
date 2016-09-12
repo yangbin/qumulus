@@ -33,6 +33,10 @@ impl Path {
         self.path.len()
     }
 
+    pub fn truncate(&mut self, len: usize) {
+        self.path.truncate(len);
+    }
+
     /// Returns a new `Path` prefix that is fully resolved, i.e. no wildcards
     pub fn resolved(&self) -> Path {
         let prefix = self.path.iter().take_while(|p| p.starts_with("#"));

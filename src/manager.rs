@@ -1,21 +1,25 @@
 //! Zone registry, dispatches commands and spawns Zones
 
 use std::any::Any;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::thread;
 
 use mioco;
 use mioco::sync::mpsc::{channel, Receiver, Sender};
+use rand;
 
 use node::External;
 use path::Path;
 use store::StoreHandle;
 use zone::{Zone, ZoneHandle};
 
+const MAX_LOADED_SOFT: usize = 600;
+const MAX_LOADED_HARD: usize = 800;
+
 #[derive(Clone)]
 pub struct ManagerHandle {
     pub store: StoreHandle,
-    tx: Sender<(Sender<Box<Any + Send>>, ManagerCall)>
+    tx: Sender<(Option<Sender<Box<Any + Send>>>, ManagerCall)>
 }
 
 pub enum ManagerCall {
@@ -23,14 +27,22 @@ pub enum ManagerCall {
     Find(Path),
     List,
     Load(Path),
-    ZoneLoaded(Path)
+    ZoneLoaded(Path),
+
+    // Called by Zones
+    SignalDeferHibernation(ZoneHandle),
+    SignalHibernated(ZoneHandle),
+    SignalRequestLoad(ZoneHandle),
 }
 
 pub struct Manager {
+    eviction: EvictionHandle,
     store: StoreHandle,
     active: BTreeMap<Path, ZoneHandle>,
-    rx: Receiver<(Sender<Box<Any + Send>>, ManagerCall)>,
-    tx: Sender<(Sender<Box<Any + Send>>, ManagerCall)>
+    loaded: usize,
+    requesting_load: VecDeque<ZoneHandle>,
+    rx: Receiver<(Option<Sender<Box<Any + Send>>>, ManagerCall)>,
+    tx: Sender<(Option<Sender<Box<Any + Send>>>, ManagerCall)>
 }
 
 impl ManagerHandle {
@@ -48,15 +60,18 @@ impl ManagerHandle {
 
     pub fn send_externals(&self, prefix: &Path, externals: Vec<External>) {
         // TODO: concurrency here is bad
+        let mut path = prefix.clone();
+        let len = path.len();
+
         for mut external in externals {
             // TODO: zone may be remote
-            let mut path = prefix.clone();
 
             path.append(&mut external.path);
 
             let zone = self.load(&path);
 
-            zone.merge(external.parent_vis, external.node);
+            zone.merge(external.parent_vis, external.node); // TODO flow control
+            path.truncate(len);
         }
     }
 
@@ -68,15 +83,35 @@ impl ManagerHandle {
         self.call(ManagerCall::List)
     }
 
-    /// Generic function to call a function on the underlying Manager through message passing
+    /// Called by Zone to defer hibernation.
+    pub fn zone_defer_hibernation(&self, zone: ZoneHandle) {
+        self.cast(ManagerCall::SignalDeferHibernation(zone));
+    }
+
+    /// Called by Zone to notify of hibernation.
+    pub fn zone_hibernated(&self, zone: ZoneHandle) {
+        self.cast(ManagerCall::SignalHibernated(zone));
+    }
+
+    /// Called by Zone to request to load data.
+    pub fn zone_request_load(&self, zone: ZoneHandle) {
+        self.cast(ManagerCall::SignalRequestLoad(zone));
+    }
+
+    /// Generic function to call a function on the underlying Manager through message passing.
     fn call<T: Any>(&self, call: ManagerCall) -> T {
         let (tx, rx) = channel();
 
-        self.tx.send((tx, call)).unwrap();
+        self.tx.send((Some(tx), call)).unwrap();
 
         let result = rx.recv().unwrap();
 
         *result.downcast::<T>().unwrap()
+    }
+
+    /// Generic function to send a message to underlying Manager.
+    fn cast(&self, msg: ManagerCall) {
+        self.tx.send((None, msg)).unwrap();
     }
 }
 
@@ -95,9 +130,18 @@ impl Manager {
     }
 
     pub fn new(store: StoreHandle) -> Manager {
+        let eviction = EvictionManager::spawn();
         let (tx, rx) = channel();
 
-        Manager { store: store, active: BTreeMap::new(), tx: tx, rx: rx }
+        Manager {
+            eviction: eviction,
+            store: store,
+            active: BTreeMap::new(),
+            loaded: 0,
+            requesting_load: VecDeque::new(),
+            tx: tx,
+            rx: rx
+        }
     }
 
     fn handle(&self) -> ManagerHandle {
@@ -113,10 +157,15 @@ impl Manager {
                 ManagerCall::FindNearest(path) => Box::new(self.find_nearest(&path)),
                 ManagerCall::List => Box::new(self.list()),
                 ManagerCall::Load(path) => Box::new(self.load(&path)),
-                ManagerCall::ZoneLoaded(path) => Box::new(self.zone_loaded(&path))
+                ManagerCall::ZoneLoaded(path) => Box::new(self.zone_loaded(&path)),
+                ManagerCall::SignalDeferHibernation(zone) => Box::new(self.zone_defer_hibernation(zone)),
+                ManagerCall::SignalHibernated(zone) => Box::new(self.zone_hibernated(zone)),
+                ManagerCall::SignalRequestLoad(zone) => Box::new(self.zone_request_load(zone)),
             };
 
-            reply.send(result).unwrap();
+            if let Some(reply) = reply {
+                reply.send(result).unwrap();
+            }
         }
     }
 
@@ -128,8 +177,6 @@ impl Manager {
         let zone = Zone::spawn(self.handle(), path);
 
         self.active.insert(path.clone(), zone.clone());
-
-        zone.load(); // TODO: don't load if we're at capacity
 
         zone
     }
@@ -146,6 +193,7 @@ impl Manager {
     /// Find the 'closest' `Zone` that would be able to satisfy a call to `path`
     pub fn find_nearest(&self, path: &Path) -> (Path, ZoneHandle) {
         // TODO: probably could be more efficient
+        // TODO: use a bloom filter?
         let mut probe = path.clone();
 
         loop {
@@ -160,6 +208,146 @@ impl Manager {
     /// List all active zones
     pub fn list(&self) -> Vec<ZoneHandle> {
         self.active.values().cloned().collect()
+    }
+
+    /// Called by Zone as a deferment response to hibernation signal.
+    pub fn zone_defer_hibernation(&self, zone: ZoneHandle) {
+        self.eviction.tx.send(EvictionCall::Deferred(zone)).unwrap();
+    }
+
+    /// Called by Zone to notify of hibernation.
+    pub fn zone_hibernated(&mut self, zone: ZoneHandle) {
+        self.eviction.tx.send(EvictionCall::Unloaded(zone)).unwrap();
+        self.loaded -= 1;
+
+        if let Some(zone) = self.requesting_load.pop_front() {
+            zone.load();
+            self.eviction.tx.send(EvictionCall::Loaded(zone)).unwrap();
+            self.loaded += 1;
+
+            if self.requesting_load.len() == 0 {
+                info!("Dropped below MAX_LOADED_HARD zones");
+            }
+        }
+    }
+
+    /// Called by Zone to request to load data.
+    pub fn zone_request_load(&mut self, zone: ZoneHandle) {
+        self.load_zone(zone);
+    }
+
+    fn load_zone(&mut self, zone: ZoneHandle) {
+        if self.loaded > MAX_LOADED_HARD {
+            if self.requesting_load.len() == 0 {
+                info!("Exceeded MAX_LOADED_HARD zones");
+            }
+
+            self.requesting_load.push_back(zone);
+
+        }
+        else {
+            zone.load();
+            self.eviction.tx.send(EvictionCall::Loaded(zone)).unwrap();
+            self.loaded += 1;
+        }
+    }
+}
+
+#[derive(Clone)]
+struct EvictionHandle {
+    tx: Sender<EvictionCall>
+}
+
+struct EvictionManager {
+    loaded: HashSet<ZoneHandle>,
+    pending: HashSet<ZoneHandle>,
+    rx: Receiver<EvictionCall>,
+    tx: Sender<EvictionCall>
+}
+
+enum EvictionCall {
+    Loaded(ZoneHandle),
+    Unloaded(ZoneHandle),
+    Deferred(ZoneHandle)
+}
+
+impl EvictionManager {
+    pub fn spawn() -> EvictionHandle {
+        let manager = EvictionManager::new();
+        let handle = manager.handle();
+
+        thread::spawn(move|| {
+            manager.message_loop();
+        });
+
+        handle
+    }
+
+    pub fn new() -> EvictionManager {
+        let (tx, rx) = channel();
+
+        EvictionManager {
+            loaded: HashSet::new(),
+            pending: HashSet::new(),
+            rx: rx,
+            tx: tx
+        }
+    }
+
+    /// Return a handle to Store "process".
+    fn handle(&self) -> EvictionHandle {
+        EvictionHandle { tx: self.tx.clone() }
+    }
+
+    fn message_loop(mut self) {
+        loop {
+            let call = self.rx.recv().unwrap();
+
+            match call {
+                EvictionCall::Loaded(zone) => {
+                    if zone.path().len() != 0 { // root node is exempted
+                        self.loaded.insert(zone);
+                    }
+                },
+                EvictionCall::Unloaded(zone) => {
+                    self.loaded.remove(&zone);
+                    self.pending.remove(&zone);
+                },
+                EvictionCall::Deferred(zone) => {
+                    self.pending.remove(&zone);
+                    self.loaded.insert(zone);
+                }
+            }
+
+            // make a single pass
+            self.evict();
+        }
+    }
+
+    fn evict(&mut self) {
+        let loaded = self.loaded.len();
+        let pending = self.pending.len();
+        let total = loaded + pending;
+
+        if total <= MAX_LOADED_SOFT {
+            return;
+        }
+
+        let overflow = total - MAX_LOADED_SOFT;
+        let r = rand::random::<usize>() % (MAX_LOADED_HARD - MAX_LOADED_SOFT) / 2;
+
+        if r > overflow {
+            return;
+        }
+
+        let i = rand::random::<u64>() % loaded as u64;
+        let zone = self.loaded.iter().nth(i as usize).unwrap().clone();
+
+        zone.hibernate();
+        self.loaded.remove(&zone);
+        self.pending.insert(zone);
+
+        // TODO improve this cache eviction algorithm
     }
 }
 
@@ -200,5 +388,5 @@ fn test_load() {
     let root = Path::new(vec![]);
     let zone = manager.load(&root);
 
-    assert!(zone.state().is_loading());
+    assert!(zone.state().is_idle());
 }

@@ -4,6 +4,7 @@
 //!
 //! `ZoneHandle` is the shareable / clonable public interface to a `Zone`.
 
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use mioco;
@@ -37,6 +38,7 @@ enum ZoneCall {
     Load,
     Loaded(ZoneData),
     Merge(Vis, Node),
+    Hibernate,
     Save,
     Saved,
     Size(Sender<usize>),
@@ -104,6 +106,11 @@ impl ZoneHandle {
         (*self.path).clone()
     }
 
+    /// Signal `Zone` to hibernate. Usually called by `EvictionManager`.
+    pub fn hibernate(&self) {
+        self.tx.send(ZoneCall::Hibernate).unwrap();
+    }
+
     /// Signal `Zone` to the zone to save data. Usually called by `Store` to indicate write-readiness.
     pub fn save(&self) {
         self.tx.send(ZoneCall::Save).unwrap();
@@ -130,14 +137,33 @@ impl ZoneHandle {
     }
 }
 
-impl ZoneState {
-    const INIT: u64    = 0;
-    const LOADING: u64 = 1;
-    const ACTIVE: u64  = 2;
-    const DIRTY: u64   = 3;
-    const WRITING: u64 = 4;
+impl PartialEq for ZoneHandle {
+    fn eq(&self, other: &ZoneHandle) -> bool {
+        self.path == other.path
+    }
+}
 
-    /// Zone is waiting (for enough resources) to load data. User commands are queued.
+impl Eq for ZoneHandle {}
+
+impl Hash for ZoneHandle {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.path.hash(state);
+    }
+}
+
+impl ZoneState {
+    const IDLE: u64    = 0;
+    const INIT: u64    = 1;
+    const LOADING: u64 = 2;
+    const ACTIVE: u64  = 3;
+    const DIRTY: u64   = 4;
+    const WRITING: u64 = 5;
+
+    /// Zone is idle / hibernating
+    pub fn is_idle(&self) -> bool { self.state == ZoneState::IDLE }
+
+    /// Zone is requesting and is waiting for available resources to load data.
+    /// User commands are queued.
     pub fn is_init(&self) -> bool { self.state == ZoneState::INIT }
 
     /// Zone is waiting for data to load. User commands are queued
@@ -212,15 +238,21 @@ impl Zone {
                 match call {
                     ZoneCall::Load |
                     ZoneCall::Loaded(_) |
+                    ZoneCall::Hibernate |
                     ZoneCall::Size(_) |
                     ZoneCall::State(_) => {
                         self.handle_call(call);
                     },
-                    _ => self.queued.push(call)
+                    _ => {
+                        self.queued.push(call);
+
+                        if self.state.is_idle() {
+                            self.manager.zone_request_load(self.handle.clone());
+                            self.state.set(ZoneState::INIT);
+                        }
+                    }
                 }
             }
-
-            self.split_check();
         }
     }
 
@@ -239,6 +271,10 @@ impl Zone {
             },
             ZoneCall::Merge(vis, diff) => {
                 self.merge(vis, diff);
+                self.split_check();
+            },
+            ZoneCall::Hibernate => {
+                self.hibernate();
             },
             ZoneCall::Save => {
                 self.save();
@@ -274,6 +310,7 @@ impl Zone {
             },
             Call::Write => {
                 self.write(&command.path, command.timestamp, command.params);
+                self.split_check();
 
                 ZoneResult { ..Default::default() }
             }
@@ -335,15 +372,18 @@ impl Zone {
 
     /// Load data if not already loaded. Usually called by `Manager` when sufficient memory is available.
     pub fn load(&mut self) {
-        if ! self.state.is_ready() {
+        if self.state.is_init() {
             self.manager.store.load(&self.handle, &self.path);
             self.state.set(ZoneState::LOADING);
+        }
+        else {
+            panic!("Zone is in the wrong state to load data: {:?}", self.path())
         }
     }
 
     /// Callback for stores to send loaded data to `Zone`. Usually called by a `Store` process.
     pub fn loaded(&mut self, mut data: ZoneData) {
-        if ! self.state.is_ready() {
+        if self.state.is_loading() {
             if self.path.len() == 0 {
                 data.vis = Vis::permanent();
             }
@@ -354,7 +394,9 @@ impl Zone {
             let queued = self.queued.split_off(0);
 
             for call in queued {
-                self.handle_call(call);
+                // TODO: This re-orders requests. Find a better way. Required
+                //       for now as some state handling is not re-entrant
+                self.handle.tx.send(call).unwrap();
             }
         }
         else {
@@ -362,7 +404,19 @@ impl Zone {
         }
     }
 
-    /// Callback to notify Zone that resources are able to persist dirty data
+    /// Callback to notify Zone to hibernate.
+    pub fn hibernate(&mut self) {
+        if self.state.is_active() {
+            self.state.set(ZoneState::IDLE);
+            self.data = Default::default();
+            self.manager.zone_hibernated(self.handle.clone());
+        }
+        else {
+            self.manager.zone_defer_hibernation(self.handle.clone());
+        }
+    }
+
+    /// Callback to notify Zone of available resources to persist dirty data.
     pub fn save(&mut self) {
         if self.state.is_dirty() {
             self.manager.store.write(&self.handle, &self.path, &self.data);
@@ -373,7 +427,7 @@ impl Zone {
         }
     }
 
-    /// Callback to notify Zone that data was persisted
+    /// Callback to notify Zone that data was persisted.
     pub fn saved(&mut self) {
         if self.state.is_writing() {
             self.state.set(ZoneState::ACTIVE);
@@ -385,6 +439,11 @@ impl Zone {
         else {
             unimplemented!();
         }
+    }
+
+    /// Get zone path.
+    pub fn path(&self) -> Path {
+        (*self.path).clone()
     }
 
     /// Get estimated size.
@@ -465,7 +524,7 @@ impl ZoneData {
 fn test_zone_state() {
     let mut state: ZoneState = Default::default();
 
-    assert!(state.is_init());
+    assert!(state.is_idle());
     assert!(!state.is_ready());
 
     state.set(ZoneState::LOADING);
