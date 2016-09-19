@@ -495,7 +495,7 @@ impl Zone {
     }
 
     fn sub(&mut self, path: &Path, tx: &Sender<String>) {
-        let listener = Listener::new(path, tx);
+        let listener = Listener::new(self.path.clone(), Arc::new(path.clone()), tx);
 
         self.listeners.push(listener);
     }
