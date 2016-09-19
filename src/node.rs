@@ -32,9 +32,10 @@ pub struct Node {
     delegated: u64
 }
 
+/// Tracks effective changes (includes visibility changes)
 #[derive(Debug, Default, PartialEq)]
 pub struct Update {
-    visible: Option<bool>,
+    changed: bool,
     old: Option<Value>,
     new: Option<Value>,
     keys: Option<BTreeMap<String, Update>>,
@@ -338,10 +339,9 @@ impl Node {
 
 impl Update {
     pub fn to_json(&self) -> JSON {
-        let visible = match self.visible {
-            None => JSON::Null,
-            Some(false) => JSON::Bool(false),
-            Some(true) => JSON::Bool(true)
+        let changed = match self.changed {
+            false => JSON::Null,
+            true => JSON::Bool(self.new.is_some()),
         };
 
         let value = match self.new {
@@ -363,7 +363,7 @@ impl Update {
             ).collect())
         };
 
-        JSON::Array(vec![keys, visible, value])
+        JSON::Array(vec![keys, changed, value])
     }
 }
 
@@ -399,7 +399,7 @@ fn merge(
     // of this or child nodes may have changed.
     let mut propagate: Option<Node> = None;
 
-    let mut changed = false; // set to true of value changes (ignoring vis)
+    let mut value_changed = false; // set to true if value changes (ignoring vis)
 
     // Merge value at node
 
@@ -407,7 +407,7 @@ fn merge(
         // timestamp newer, use updated value
         if node.value != diff.value {
             node.value = diff.value.clone();
-            changed = true;
+            value_changed = true;
         }
 
         node.vis.updated = diff.vis.updated;
@@ -462,14 +462,15 @@ fn merge(
         },
         (false, true)  => {
             update.new = Some(node.value.clone());
-            update.visible = Some(true);
+            update.changed = true;
         },
         (true, false) => {
-            update.visible = Some(false);
+            update.changed = true;
         },
         (true, true)  => {
-            if changed {
+            if value_changed {
                 update.new = Some(node.value.clone());
+                update.changed = true;
             }
             else {
                 update.old = None;
@@ -548,7 +549,7 @@ fn merge(
 
         // TODO: at this point, delegated data has been moved, so we better not crash
 
-        update.visible = None;
+        update.changed = false;
         update.old = None;
         update.new = None;
         update.keys = None;
@@ -594,7 +595,7 @@ fn read(stack: &mut Path,
     if stack.len() >= path.len() {
         // Get value at this node
         if vis.is_visible() {
-            update.visible = Some(vis.is_visible());
+            update.changed = true;
             update.new = Some(node.value.clone());
         }
     }
@@ -669,7 +670,7 @@ impl Update {
     }
 
     fn is_noop(&self) -> bool {
-        self.visible.is_none() &&
+        ! self.changed &&
             self.old.is_none() &&
             self.new.is_none() &&
             self.keys.is_none()
