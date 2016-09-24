@@ -9,7 +9,7 @@
 //! Deleted data leave meta information as tombstones which are occasionally cleared [TODO].
 
 use std::collections::BTreeMap;
-use std::collections::btree_map::{Entry, Iter};
+use std::collections::btree_map::Entry;
 use std::mem;
 
 use serde_json::Value as JSON;

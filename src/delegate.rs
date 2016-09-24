@@ -6,7 +6,6 @@ use std::collections::BinaryHeap;
 use time;
 
 use node::Node;
-use path::Path;
 
 /// Possibly delegate
 pub fn delegate(node: &Node) -> Option<Node> {

@@ -194,8 +194,6 @@ impl Zone {
 
         let handle = zone.handle.clone();
 
-        let name = path.path.join(".");
-
         mioco::spawn(move|| {
             zone.message_loop();
         });
