@@ -365,6 +365,25 @@ impl Update {
 
         JSON::Array(vec![keys, changed, value])
     }
+
+    fn add_child(&mut self, k: &String, child_update: Option<Update>) {
+        if let Some(child_update) = child_update {
+            if self.keys.is_none() {
+                self.keys = Some(BTreeMap::new())
+            }
+
+            let keys = self.keys.as_mut().unwrap();
+
+            keys.insert(k.clone(), child_update);
+        }
+    }
+
+    fn is_noop(&self) -> bool {
+        ! self.changed &&
+            self.old.is_none() &&
+            self.new.is_none() &&
+            self.keys.is_none()
+    }
 }
 
 /// Internal merge implementation function. Function is recursive, current path of `node` being
@@ -654,27 +673,6 @@ fn read(stack: &mut Path,
         true => None,
         false => Some(update)
     };
-}
-
-impl Update {
-    fn add_child(&mut self, k: &String, child_update: Option<Update>) {
-        if let Some(child_update) = child_update {
-            if self.keys.is_none() {
-                self.keys = Some(BTreeMap::new())
-            }
-
-            let keys = self.keys.as_mut().unwrap();
-
-            keys.insert(k.clone(), child_update);
-        }
-    }
-
-    fn is_noop(&self) -> bool {
-        ! self.changed &&
-            self.old.is_none() &&
-            self.new.is_none() &&
-            self.keys.is_none()
-    }
 }
 
 #[cfg(test)]
