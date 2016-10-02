@@ -26,7 +26,12 @@ impl Listener {
     pub fn update(&self, update: &Update) -> Result<(), SendError<String>> {
         let req_id = Value::U64(0);
         let root = Value::Array(self.root.path.iter().map(|s| { Value::String(s.clone()) }).collect());
-        let update = update.to_json();
+        let update = update.filter(&self.path.path[..]);
+
+        if update == Value::Null {
+            return Ok(());
+        }
+
         let json = Value::Array(vec![req_id, Value::Null, root, update]);
         let str = serde_json::to_string(&json).unwrap();
 

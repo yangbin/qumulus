@@ -366,6 +366,82 @@ impl Update {
         JSON::Array(vec![keys, changed, value])
     }
 
+    /// Given a path, return the JSON representation which matches data in Update.
+    /// Returns `Null` if nothing matches.
+    pub fn filter(&self, path: &[String]) -> JSON {
+        if path.len() == 0 {
+            // update matches path so return changes if any
+            if ! self.changed {
+                return JSON::Null
+            }
+
+            let changed = JSON::Bool(self.new.is_some());
+
+            let value = match self.new {
+                Some(Value::Null) | None => JSON::Null,
+                Some(Value::Bool(v)) => JSON::Bool(v),
+                Some(Value::I64(v)) => JSON::I64(v),
+                Some(Value::U64(v)) => JSON::U64(v),
+                Some(Value::F64(v)) => JSON::F64(v),
+                Some(Value::String(ref s)) => JSON::String(String::from(&**s))
+            };
+
+            return JSON::Array(vec![JSON::Null, changed, value])
+        }
+
+        if path[0] == "**" {
+            return self.to_json();
+        }
+
+        if path[0] == "*" {
+            if let Some(ref keys) = self.keys {
+                let keys = keys.iter().filter_map(|(k, v) | {
+                    if v.delegated.unwrap_or_default() {
+                        return None;
+                    }
+
+                    let v = v.filter(&path[1..]);
+
+                    if v == JSON::Null {
+                        return None;
+                    }
+
+                    return Some((k.clone(), v));
+                }).collect();
+
+                return JSON::Array(vec![JSON::Object(keys), JSON::Null, JSON::Null]);
+            }
+            else {
+                return JSON::Null;
+            }
+        }
+
+        if let Some(ref keys) = self.keys {
+            let ref part = path[0];
+
+            match keys.get(part) {
+                Some(child_update) => {
+                    let update = child_update.filter(&path[1..]);
+
+                    if update == JSON::Null {
+                        return JSON::Null
+                    }
+
+                    let mut keys = BTreeMap::new();
+
+                    keys.insert(part.clone(), update);
+
+                    return JSON::Array(vec![JSON::Object(keys), JSON::Null, JSON::Null]);
+                },
+                None => {
+                    return JSON::Null;
+                }
+            }
+        }
+
+        return JSON::Null;
+    }
+
     fn add_child(&mut self, k: &String, child_update: Option<Update>) {
         if let Some(child_update) = child_update {
             if self.keys.is_none() {
