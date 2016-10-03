@@ -484,12 +484,11 @@ impl Zone {
         unimplemented!();
     }
 
-    fn notify(&self, update: &Update) {
-        for listener in &self.listeners {
-            listener.update(update).unwrap();
-            // TODO: don't crash Zone; remove listener from list
-            // TODO: if externals change, binds need to be propagated to new Zones
-        }
+    fn notify(&mut self, update: &Update) {
+        self.listeners.retain(|listener| {
+            listener.update(update).is_ok()
+        });
+        // TODO: if externals change, binds need to be propagated to new Zones
     }
 
     fn sub(&mut self, path: &Path, tx: &Sender<String>) {
