@@ -475,14 +475,6 @@ fn merge(
     // "Previous" effective visibility of this node
     vis_old.descend(&node.vis);
 
-    // Merge external status of node
-    if diff.delegated > 0 && diff.delegated > node.delegated {
-        node.delegated = diff.delegated;
-    }
-    else {
-        diff.delegated = 0;
-    }
-
     let mut update: Update = Default::default();
 
     if vis_old.is_visible() {
@@ -629,7 +621,20 @@ fn merge(
         }
     }
 
-    // Handle delegation
+    // Merge delegation (external) status of node
+    if diff.delegated > 0 && diff.delegated > node.delegated {
+        if stack.len() > 0 && (diff.delegated ^ node.delegated) & 1 == 1 {
+            // delegation status changed
+            update.delegated = Some(diff.delegated & 1 == 1);
+        }
+
+        node.delegated = diff.delegated;
+    }
+    else {
+        diff.delegated = 0;
+    }
+
+    // Handle delegated data
     if stack.len() > 0 && node.delegated & 1 > 0 && (node.keys.is_some() || node.value != Value::Null) {
         // TODO: add externals if effective vis changes
         // TODO: handle un-delegation
@@ -648,7 +653,6 @@ fn merge(
         update.old = None;
         update.new = None;
         update.keys = None;
-        update.delegated = Some(true);
     }
 
     // TODO: throw node / diff / update away if empty
