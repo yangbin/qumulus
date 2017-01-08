@@ -7,6 +7,23 @@ pub struct Path {
     pub path: Vec<String>
 }
 
+macro_rules! path {
+    ( $($p:tt).* ) => {
+        {
+            Path {
+                path: vec![
+                $(
+                    match stringify!($p) {
+                        "%" => "**".to_string(),
+                        p => p.to_string()
+                    },
+                )*
+                ]
+            }
+        }
+    }
+}
+
 impl Path {
     pub fn empty() -> Path {
         Path { path: vec![] }
@@ -44,6 +61,45 @@ impl Path {
         Path::new(prefix.cloned().collect())
     }
 
+    pub fn delegate(&self, d_path: &Path) -> (bool, Option<Path>) {
+        let mut iter = self.path.iter();
+        let mut retain = false;
+
+        for d in &d_path.path {
+            let p = iter.next();
+
+            match p {
+                None => {
+                    // Listener path shorter then delegate path
+                    return (true, None);
+                },
+                Some(p) if p == d => {
+                    // Part matches, so continue
+                    continue;
+                },
+                Some(p) if &*p == "*" => {
+                    // Wildcard matches, retain and continue
+                    retain = true;
+                    continue;
+                },
+                Some(p) if &*p == "**" => {
+                    // Recursiive, retain and return delegated
+                    let listener = path!(%);
+                    return (true, Some(listener));
+                },
+                _ => {
+                    // Not matching, just retain
+                    return (true, None);
+                }
+            }
+        }
+
+        let mut path = vec![];
+
+        path.extend(iter.cloned());
+        (retain, Some(Path::new(path)))
+    }
+
     pub fn slice(&self, n: usize) -> Path {
         Path::new(self.path[n..].to_vec())
     }
@@ -53,24 +109,19 @@ impl Path {
     }
 }
 
-macro_rules! path {
-    ( $($p:ident).+ ) => {
-        {
-            Path {
-                path: vec![
-                $(
-                    stringify!($p).to_string(),
-                )+
-                ]
-            }
-        }
-    }
-}
-
 #[test]
 fn test_macro() {
-    assert_eq!(Path { path: vec!["root".to_string()] }, path!(root));
-    assert_eq!(Path { path: vec!["root".to_string(), "moo".to_string()] }, path!(root.moo));
+    assert_eq!(path(vec!["root"]), path!(root));
+    assert_eq!(path(vec!["root", "moo"]), path!(root.moo));
+    assert_eq!(path(vec!["*"]), path!(*));
+    assert_eq!(path(vec!["**"]), path!(%));
+    assert_eq!(path(vec!["root", "*"]), path!(root.*));
+    assert_eq!(path(vec!["root", "*", "moo"]), path!(root.*.moo));
+    assert_eq!(path(vec!["root", "**"]), path!(root.%));
+
+    fn path(path: Vec<&str>) -> Path {
+        Path { path: path.iter().map(|p| p.to_string()).collect() }
+    }
 }
 
 #[test]
@@ -88,4 +139,76 @@ fn test_pop() {
 
     assert_eq!(p.pop(), Some("cow".to_string()));
     assert_eq!(p.pop(), Some("moo".to_string()));
+}
+
+#[test]
+fn test_delegate_match() {
+    use mioco::sync::mpsc::channel;
+
+    let (r, p) = d(path!(root.moo.cow), path!(root.moo));
+    assert!(!r);
+    assert_eq!(p.unwrap(), path!(cow));
+
+    let (r, p) = d(path!(root.moo.cow), path!(root.cow));
+    assert!(r);
+    assert!(p.is_none());
+
+    let (r, p) = d(path!(root.moo), path!(root.moo.cow));
+    assert!(r);
+    assert!(p.is_none());
+
+    let (r, p) = d(path!(root.*), path!(root.moo));
+    assert!(r);
+    assert_eq!(p.unwrap(), path!());
+
+    let (r, p) = d(path!(root.*), path!(root.moo.cow));
+    assert!(r);
+    assert!(p.is_none());
+
+    let (r, p) = d(path!(*), path!(moo));
+    assert!(r);
+    assert_eq!(p.unwrap(), path!());
+
+    let (r, p) = d(path!(*), path!(moo.cow));
+    assert!(r);
+    assert!(p.is_none());
+
+    let (r, p) = d(path!(*.moo), path!(moo));
+    assert!(r);
+    assert_eq!(p.unwrap(), path!(moo));
+
+    let (r, p) = d(path!(*.moo), path!(moo.cow));
+    assert!(r);
+    assert!(p.is_none());
+
+    let (r, p) = d(path!(*.moo), path!(moo.moo));
+    assert!(r);
+    assert_eq!(p.unwrap(), path!());
+
+    // % means **
+    let (r, p) = d(path!(%), path!(moo));
+    assert!(r);
+    assert_eq!(p.unwrap(), path!(%));
+
+    let (r, p) = d(path!(%), path!(moo.moo));
+    assert!(r);
+    assert_eq!(p.unwrap(), path!(%));
+
+    let (r, p) = d(path!(moo.%), path!(moo.moo));
+    assert!(r);
+    assert_eq!(p.unwrap(), path!(%));
+
+    let (r, p) = d(path!(moo.%), path!(cow));
+    assert!(r);
+    assert!(p.is_none());
+
+    let (r, p) = d(path!(moo.cow.%), path!(moo));
+    assert!(!r);
+    assert_eq!(p.unwrap(), path!(cow.%));
+
+    fn d(listener: Path, delegated: Path) -> (bool, Option<Path>) {
+        let (retain, d_listener) = listener.delegate(&delegated);
+
+        (retain, d_listener)
+    }
 }
