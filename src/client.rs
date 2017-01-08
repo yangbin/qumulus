@@ -67,7 +67,14 @@ impl Client {
 
             mioco::spawn(move|| {
                 loop {
-                    let command = { commands_rx.lock().unwrap().recv() }.unwrap();
+                    // quit if disconnected
+                    let command = match commands_rx.lock() {
+                        Ok(c) => match c.recv() {
+                            Ok(c) => c,
+                            Err(_) => return
+                        },
+                        Err(_) => return
+                    };
 
                     process(&manager, &tx, command);
                 }
@@ -94,6 +101,7 @@ impl Client {
         }
 
         // Shutdown
+        // command_tx is dropped here, threads using command_rx will panic
     }
 
     fn create_writer_thread(&self, channel: Receiver<String>) {
@@ -101,11 +109,20 @@ impl Client {
 
         mioco::spawn(move|| {
             loop {
-                let message = channel.recv().unwrap();
+                let message = match channel.recv() {
+                    Ok(message) => message,
+                    Err(_) => return
+                };
+
 
                 // TODO: test socket for writability
-                writer.write_all(message.as_bytes()).unwrap();
-                writer.write(b"\n").unwrap();
+                if let Err(_) = writer.write_all(message.as_bytes()) {
+                    return;
+                }
+
+                if let Err(_) = writer.write(b"\n") {
+                    return;
+                }
             }
         });
     }
@@ -171,7 +188,8 @@ fn process(manager: &ManagerHandle, tx: &Sender<String>, mut command: Command) {
             update.map_or(Value::Null, |u| u.to_json())
         ];
 
-        tx.send(serde_json::to_string(&response).unwrap()).unwrap();
+        // TODO stop processing if unable to reply
+        tx.send(serde_json::to_string(&response).unwrap()).unwrap_or_default();
     }
 }
 
@@ -179,7 +197,11 @@ fn pinger(tx: Sender<String>) {
     mioco::spawn(move|| {
         loop {
             mioco::sleep(Duration::from_secs(60));
-            tx.send("{ \"ping\": 1 }".to_string()).unwrap();
+
+            if let Err(_) = tx.send("{ \"ping\": 1 }".to_string()) {
+                // hung up
+                return;
+            }
         }
     });
 }
