@@ -14,6 +14,12 @@ pub struct Listener {
     pub tx: Sender<String>
 }
 
+/// A Relative Listeer
+pub struct RListener {
+    pub path: Path,
+    pub tx: Sender<String>
+}
+
 impl Listener {
     pub fn new(root: Arc<Path>, path: Arc<Path>, tx: &Sender<String>) -> Listener {
         Listener {
@@ -36,5 +42,26 @@ impl Listener {
         let str = serde_json::to_string(&json).unwrap();
 
         self.tx.send(str)
+    }
+
+    /// Computes whether listener is retained and/or delegated
+    pub fn delegate(&self, d_path: &Path) -> (bool, Option<RListener>) {
+        let (retain, path) = self.path.delegate(d_path);
+        let d_listener = path.map(|p| RListener::new(p, &self.tx.clone()));
+
+        (retain, d_listener)
+    }
+}
+
+impl RListener {
+    pub fn new(path: Path, tx: &Sender<String>) -> RListener {
+        RListener {
+            path: path,
+            tx: tx.clone()
+        }
+    }
+
+    pub fn to_absolute(self, path: Arc<Path>) -> Listener {
+        Listener::new(path, Arc::new(self.path), &self.tx.clone())
     }
 }

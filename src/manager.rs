@@ -8,6 +8,7 @@ use mioco;
 use mioco::sync::mpsc::{channel, Receiver, Sender};
 use rand;
 
+use listener::RListener;
 use node::External;
 use path::Path;
 use store::StoreHandle;
@@ -56,6 +57,21 @@ impl ManagerHandle {
 
     pub fn load(&self, path: &Path) -> ZoneHandle {
         self.call(ManagerCall::Load(path.clone()))
+    }
+
+    pub fn send_external(&self, prefix: &Path, external: External, listener: Vec<RListener>) {
+        let mut path = prefix.clone();
+
+        // TODO: zone may be remote
+
+        // Borrow checker doesn't like:
+        //   path.append(&mut external.path);
+        let mut p = external.path;
+        path.append(&mut p);
+
+        let zone = self.load(&path);
+
+        zone.merge_with_listeners(external.parent_vis, external.node, listener); // TODO flow control
     }
 
     pub fn send_externals(&self, prefix: &Path, externals: Vec<External>) {

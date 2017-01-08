@@ -14,7 +14,7 @@ use serde_json::Value;
 use command::Command;
 use command::Call;
 use delegate::delegate;
-use listener::Listener;
+use listener::{Listener, RListener};
 use manager::ManagerHandle;
 use node::{DelegatedMatch, Node, Update, Vis};
 use path::Path;
@@ -35,10 +35,11 @@ pub struct ZoneHandle {
 /// Zones communicate via message passing. This enum is a list of valid calls.
 enum ZoneCall {
     UserCommand(UserCommand),
+    Hibernate,
     Load,
     Loaded(ZoneData),
     Merge(Vis, Node),
-    Hibernate,
+    MergeWithListeners(Vis, Node, Vec<RListener>),
     Save,
     Saved,
     Size(Sender<usize>),
@@ -98,8 +99,16 @@ impl ZoneHandle {
         self.tx.send(ZoneCall::Loaded(data)).unwrap();
     }
 
+    /// Merge data into this `Zone`. The effective parent visibility (through all ancestors) must
+    /// be provided.
     pub fn merge(&self, parent_vis: Vis, diff: Node) {
         self.tx.send(ZoneCall::Merge(parent_vis, diff)).unwrap();
+    }
+
+    /// Same as `merge` except a list of listeners is also provided. The listeners expect to see
+    /// changes that would bring them up to date with data in this `Zone`
+    pub fn merge_with_listeners(&self, parent_vis: Vis, diff: Node, listeners: Vec<RListener>) {
+        self.tx.send(ZoneCall::MergeWithListeners(parent_vis, diff, listeners)).unwrap();
     }
 
     pub fn path(&self) -> Path {
@@ -271,6 +280,10 @@ impl Zone {
                 self.merge(vis, diff);
                 self.split_check();
             },
+            ZoneCall::MergeWithListeners(vis, diff, listeners) => {
+                self.merge_with_listeners(vis, diff, listeners);
+                self.split_check();
+            },
             ZoneCall::Hibernate => {
                 self.hibernate();
             },
@@ -318,6 +331,7 @@ impl Zone {
     /// Bind value(s)
     pub fn bind(&mut self, path: &Path, tx: &Sender<String>) -> (Option<Update>, Vec<DelegatedMatch>) {
         // TODO verify path
+        // TODO don't sub if path has been delegated completely
 
         self.sub(path, tx);
         self.read(path)
@@ -353,12 +367,84 @@ impl Zone {
         }
 
         if externals.len() > 0 {
-            self.manager.send_externals(&self.path, externals);
+            for external in externals {
+                // Check if Node is in a transition to being delegated.
+                // Existing listeners are either:
+                //   - unaffected by delegation
+                //   - delegated and no longer in scope for this Zone
+                //   - delegated but still in scope
+                if external.initial {
+                    let mut x_listeners = vec![];
+
+                    self.listeners.retain(|l| {
+                        let (retain, x_listener) = l.delegate(&external.path);
+
+                        if let Some(x_listener) = x_listener {
+                            x_listeners.push(x_listener);
+                        }
+
+                        retain
+                    });
+
+                    self.manager.send_external(&self.path, external, x_listeners);
+                }
+                else {
+                    // Data meant for delegated node
+                    self.manager.send_external(&self.path, external, vec![]);
+                }
+            }
         }
 
         if ! diff.is_noop() {
             // TODO: diff goes to replicas
         }
+    }
+
+    /// Same as Merge except a list of listeners is provided, which expects
+    /// updates that would bring those listeners up to date.
+    ///
+    /// TODO: This might be better implemented as a merge_bind operation (where
+    /// bind takes in a "cached values" parameter), which will solve the
+    /// recursive delegation problem.
+    pub fn merge_with_listeners(&mut self, mut parent_new_vis: Vis, diff: Node, listeners: Vec<RListener>) {
+        // First, bring listeners up to date
+        let (update, externals) = {
+            let ZoneData { ref node, vis } = self.data;
+
+            parent_new_vis.merge(&vis); // 'new' vis cannot contain older data than current vis
+
+            // TODO: workaround merge mutating receiver and argument
+            let mut node_clone = node.clone();
+            let mut diff_clone = diff.clone();
+
+            // merge "the other way" to get the reverse updates
+            diff_clone.merge(&mut node_clone, vis, parent_new_vis)
+        };
+
+        if externals.len() > 0 {
+            // TODO: Zone has delegations so listeners need to be propagated to
+            // those external Zones as well.
+            println!("Warning: recursive delegation not handled");
+        }
+
+        // Convert all RListeners to Listeners
+        let mut listeners: Vec<_> = listeners
+            .into_iter()
+            .map(|l| l.to_absolute(self.path.clone()))
+            .collect();
+
+        // Only notify if there are backports
+        if let Some(update) = update {
+            listeners.retain(|listener| {
+                listener.update(&update).is_ok()
+            });
+        }
+
+        // Merge data delegated from parent
+        self.merge(parent_new_vis, diff);
+
+        // Add delegated listeners to `Zone`
+        self.listeners.append(&mut listeners);
     }
 
     /// Read value(s)
@@ -484,11 +570,11 @@ impl Zone {
         unimplemented!();
     }
 
+    /// Notifies listeners
     fn notify(&mut self, update: &Update) {
         self.listeners.retain(|listener| {
             listener.update(update).is_ok()
         });
-        // TODO: if externals change, binds need to be propagated to new Zones
     }
 
     fn sub(&mut self, path: &Path, tx: &Sender<String>) {

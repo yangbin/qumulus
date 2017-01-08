@@ -51,7 +51,10 @@ pub struct External {
     pub parent_vis: Vis,
 
     /// Data to be delegated (relative)
-    pub node: Node
+    pub node: Node,
+
+    /// True if this is a transition to delegated
+    pub initial: bool
 }
 
 #[derive(Debug, Default)]
@@ -642,7 +645,8 @@ fn merge(
         let external = External {
             path: stack.clone(),
             parent_vis: vis_new,
-            node: node.delegated()
+            node: node.delegated(),
+            initial: update.delegated.unwrap_or_default()
         };
 
         externals.push(external);
