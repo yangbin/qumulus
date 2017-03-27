@@ -52,8 +52,8 @@ impl StoreHandle {
     /// Saves data for a zone and notifies zone directly via its handle.
     pub fn write(&self, zone: &ZoneHandle, path: &Path, data: &ZoneData) {
         // Optimization: seralize to send over channel instead of cloning ZoneData
-        let limit = bincode::SizeLimit::Infinite;
-        let serialized = bincode::serde::serialize(&data, limit).unwrap();
+        let limit = bincode::Infinite;
+        let serialized = bincode::serialize(&data, limit).unwrap();
 
         self.tx.send(StoreCall::Write(zone.clone(), path.clone(), serialized)).unwrap();
     }

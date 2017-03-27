@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 use std::mem;
 
+use serde_json;
 use serde_json::Value as JSON;
 
 use path::Path;
@@ -148,9 +149,7 @@ impl Node {
         match data {
             JSON::Null => Node { vis: vis, value: Value::Null, ..Default::default() },
             JSON::Bool(v) => Node { vis: vis, value: Value::Bool(v), ..Default::default() },
-            JSON::I64(v) => Node { vis: vis, value: Value::I64(v), ..Default::default() },
-            JSON::U64(v) => Node { vis: vis, value: Value::U64(v), ..Default::default() },
-            JSON::F64(v) => Node { vis: vis, value: Value::F64(v), ..Default::default() },
+            JSON::Number(v) => Node { vis: vis, value: Value::F64(v.as_f64().unwrap()), ..Default::default() },
             JSON::String(s) => Node { vis: vis, value: Value::from(s), ..Default::default() },
             JSON::Object(obj) => {
                 let keys = obj.into_iter().map(|(k, v)|
@@ -350,9 +349,9 @@ impl Update {
         let value = match self.new {
             Some(Value::Null) | None => JSON::Null,
             Some(Value::Bool(v)) => JSON::Bool(v),
-            Some(Value::I64(v)) => JSON::I64(v),
-            Some(Value::U64(v)) => JSON::U64(v),
-            Some(Value::F64(v)) => JSON::F64(v),
+            Some(Value::I64(v)) => v.into(),
+            Some(Value::U64(v)) => v.into(),
+            Some(Value::F64(v)) => v.into(),
             Some(Value::String(ref s)) => JSON::String(String::from(&**s))
         };
 
@@ -383,9 +382,9 @@ impl Update {
             let value = match self.new {
                 Some(Value::Null) | None => JSON::Null,
                 Some(Value::Bool(v)) => JSON::Bool(v),
-                Some(Value::I64(v)) => JSON::I64(v),
-                Some(Value::U64(v)) => JSON::U64(v),
-                Some(Value::F64(v)) => JSON::F64(v),
+                Some(Value::I64(v)) => v.into(),
+                Some(Value::U64(v)) => v.into(),
+                Some(Value::F64(v)) => v.into(),
                 Some(Value::String(ref s)) => JSON::String(String::from(&**s))
             };
 
@@ -430,7 +429,7 @@ impl Update {
                         return JSON::Null
                     }
 
-                    let mut keys = BTreeMap::new();
+                    let mut keys = serde_json::Map::new();
 
                     keys.insert(part.clone(), update);
 
@@ -759,9 +758,6 @@ fn read(stack: &mut Path,
     };
 }
 
-#[cfg(test)]
-use serde_json;
-
 #[test]
 fn test_expand() {
     let data: JSON = serde_json::from_str(r#"
@@ -778,7 +774,7 @@ fn test_expand() {
         keys: Some(map! {
             "moo".to_string() => Node {
                 vis: Vis::new(1000, 0),
-                value: Value::U64(42),
+                value: Value::F64(42.0),
                 keys: None,
                 delegated: 0
             }

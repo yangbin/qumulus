@@ -4,9 +4,6 @@
 
 #![feature(associated_consts)]
 #![feature(custom_derive)]
-#![feature(plugin)]
-
-#![plugin(serde_macros)]
 
 extern crate bincode;
 extern crate env_logger;
@@ -15,6 +12,7 @@ extern crate mioco;
 extern crate rand;
 extern crate serde;
 extern crate serde_json;
+#[macro_use] extern crate serde_derive;
 extern crate threadpool;
 extern crate time;
 

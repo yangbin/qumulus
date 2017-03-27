@@ -30,7 +30,7 @@ impl Listener {
     }
 
     pub fn update(&self, update: &Update) -> Result<(), SendError<String>> {
-        let req_id = Value::U64(0);
+        let req_id: Value = 0.into();
         let root = Value::Array(self.root.path.iter().map(|s| { Value::String(s.clone()) }).collect());
         let update = update.filter(&self.path.path[..]);
 

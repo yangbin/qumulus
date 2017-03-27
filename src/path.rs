@@ -143,8 +143,6 @@ fn test_pop() {
 
 #[test]
 fn test_delegate_match() {
-    use mioco::sync::mpsc::channel;
-
     let (r, p) = d(path!(root.moo.cow), path!(root.moo));
     assert!(!r);
     assert_eq!(p.unwrap(), path!(cow));

@@ -2,9 +2,10 @@
 
 use std;
 use std::collections::VecDeque;
+use std::collections::hash_map::DefaultHasher;
 use std::error::Error;
 use std::fs::{DirBuilder, File};
-use std::hash::{Hash, Hasher, SipHasher};
+use std::hash::{Hash, Hasher};
 use std::io::ErrorKind;
 use std::io::prelude::*;
 use std::sync::{Arc, Mutex};
@@ -186,7 +187,7 @@ fn blocking_read(filepath: &std::path::Path) -> Result<ZoneData, StoreError> {
         return Err(StoreError::ReadError(Box::new(err)));
     }
 
-    match bincode::serde::deserialize(&buffer) {
+    match bincode::deserialize(&buffer) {
         Err(err) => {
             error!("err {}:", err.description());
             Err(StoreError::ReadError(Box::new(err)))
@@ -242,7 +243,7 @@ fn zonefilename(path: &Path) -> String {
     filename.push_str("_");
 
     // Add a unique hash
-    let mut hasher = SipHasher::new();
+    let mut hasher = DefaultHasher::new();
     
     zonename.hash(&mut hasher);
     filename.push_str(&format!("{:X}", hasher.finish()));
@@ -268,8 +269,8 @@ fn test_read_write() {
 
     assert_eq!(data, Default::default());
 
-    let limit = bincode::SizeLimit::Infinite;
-    let serialized = bincode::serde::serialize(&data, limit).unwrap();
+    let limit = bincode::Infinite;
+    let serialized = bincode::serialize(&data, limit).unwrap();
 
     blocking_write(&file, serialized).unwrap();
 
@@ -283,8 +284,8 @@ fn test_read_write() {
         Node::expand(JSON::String(String::from("moo")), 1000)
     );
 
-    let limit = bincode::SizeLimit::Infinite;
-    let serialized = bincode::serde::serialize(&expected, limit).unwrap();
+    let limit = bincode::Infinite;
+    let serialized = bincode::serialize(&expected, limit).unwrap();
 
     blocking_write(&file, serialized).unwrap();
 

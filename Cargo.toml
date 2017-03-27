@@ -3,14 +3,15 @@ name = "qumulus"
 version = "0.1.0"
 authors = ["Kwok Yang Bin <yangbin@fragnetics.com>"]
 
+
 [dependencies]
-bincode = "*"
+bincode = { git = "https://github.com/TyOverby/bincode.git" }
 env_logger = "*"
 log = "*"
 mioco = { git = "https://github.com/dpc/mioco.git" }
 rand = "*"
-serde = "*"
-serde_json = "*"
-serde_macros = "*"
+serde = "0.9"
+serde_derive = "0.9"
+serde_json = "0.9"
 threadpool = "*"
 time = "*"

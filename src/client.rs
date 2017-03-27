@@ -182,8 +182,8 @@ fn process(manager: &ManagerHandle, tx: &Sender<String>, mut command: Command) {
 
     fn reply(tx: &Sender<String>, id: u64, left: u64, path: &Path, update: Option<Update>) {
         let response = vec![
-            serde_json::value::to_value(&id),
-            serde_json::value::to_value(&left),
+            id.into(),
+            left.into(),
             path.to_json(),
             update.map_or(Value::Null, |u| u.to_json())
         ];
