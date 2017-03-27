@@ -59,8 +59,8 @@ impl Client {
 
         let commands_rx = Arc::new(Mutex::new(commands_rx));
 
-        // Pipeline up to 5 commands at a time
-        for _ in 0..5 {
+        // Pipeline up to 1000 commands at a time
+        for _ in 0..1000 {
             let commands_rx = commands_rx.clone();
             let manager = self.manager.clone();
             let tx = self.tx.clone();
