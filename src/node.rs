@@ -25,12 +25,19 @@ pub struct Vis {
     deleted: u64
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct Node {
     vis: Vis,
     value: Value,
     keys: Option<BTreeMap<String, Node>>,
     delegated: u64
+}
+
+/// Node structure that includes ancestor visibility information
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+pub struct NodeTree {
+    pub node: Node, // Mergeable data
+    pub vis: Vis    // Visibility of this tree through ancestors
 }
 
 /// Tracks effective changes (includes visibility changes)
@@ -48,11 +55,8 @@ pub struct External {
     /// Path to delegated data
     pub path: Path,
 
-    /// Effective visibility of parent node
-    pub parent_vis: Vis,
-
-    /// Data to be delegated (relative)
-    pub node: Node,
+    /// Data to be delegated (relative) and effective visibility
+    pub tree: NodeTree,
 
     /// True if this is a transition to delegated
     pub initial: bool
@@ -118,17 +122,6 @@ impl Vis {
 
         if diff.deleted > self.deleted {
             self.deleted = diff.deleted;
-        }
-    }
-}
-
-impl Default for Node {
-    fn default() -> Node {
-        Node {
-            vis: Default::default(),
-            value: Value::Null,
-            keys: None,
-            delegated: 0
         }
     }
 }
@@ -301,6 +294,9 @@ impl Node {
     /// is then handled by the merge function. This allows most logic to be
     /// consolidated into the merge function allowing for easier testing.
     ///
+    /// Note that `vis_old` and `vis_new` are NOT merged. They should be de-
+    /// conflicted before calling this function.
+    ///
     /// # Arguments
     ///
     /// * [in]
@@ -336,6 +332,34 @@ impl Node {
         let update = read(&mut stack, self, vis, path, 0, &mut externals);
 
         (update, externals)
+    }
+
+    /// Converts Node to a NodeTree
+    pub fn noop_vis(self) -> NodeTree {
+        NodeTree {
+            node: self,
+            vis: Default::default()
+        }
+    }
+}
+
+impl NodeTree {
+    /// Merge two trees, including visibilitiy through ancestors.
+    pub fn merge(&mut self, diff: &mut NodeTree) -> (Option<Update>, Vec<External>) {
+        let (update, externals) = {
+            diff.vis.merge(&self.vis); // 'new' vis cannot contain older data than current vis
+            self.node.merge(&mut diff.node, self.vis, diff.vis)
+        };
+
+        self.vis = diff.vis;
+        (update, externals)
+    }
+
+    /// Read data from node
+    ///
+    /// Returns user-visible data at `path`.
+    pub fn read(&self, path: &Path) -> (Option<Update>, Vec<DelegatedMatch>) {
+        self.node.read(self.vis, path)
     }
 }
 
@@ -466,6 +490,9 @@ impl Update {
 
 /// Internal merge implementation function. Function is recursive, current path of `node` being
 /// processed is tracked in `stack`.
+///
+/// Note that `vis_old` and `vis_new` are NOT merged. They should be de-conflicted before calling
+/// this function.
 fn merge(
     stack: &mut Path,
     node: &mut Node,
@@ -643,8 +670,10 @@ fn merge(
 
         let external = External {
             path: stack.clone(),
-            parent_vis: vis_new,
-            node: node.delegated(),
+            tree: NodeTree {
+                node: node.delegated(),
+                vis: vis_new
+            },
             initial: update.delegated.unwrap_or_default()
         };
 
@@ -788,4 +817,19 @@ fn test_expand() {
 #[test]
 fn test_merge() {
     // TODO
+}
+
+#[test]
+fn test_merge_noop() {
+    let mut tree = NodeTree {
+        node: Node { vis: Vis { updated: 1, deleted: 0 }, value: Value::Null, keys: None, delegated: 0 },
+        vis: Vis { updated: 1, deleted: 0 }
+    };
+
+    let mut noop: NodeTree = Default::default();
+
+    let ( update, externals ) = tree.merge(&mut noop);
+
+    assert_eq!(update, None);
+    assert_eq!(externals.len(), 0);
 }

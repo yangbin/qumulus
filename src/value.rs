@@ -21,6 +21,12 @@ pub enum Value {
     String(Box<str>)
 }
 
+impl Default for Value {
+    fn default() -> Value {
+        Value::Null
+    }
+}
+
 impl From<String> for Value {
     fn from(s: String) -> Self {
         Value::String(s.into_boxed_str())

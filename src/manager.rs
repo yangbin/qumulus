@@ -59,7 +59,8 @@ impl ManagerHandle {
         self.call(ManagerCall::Load(path.clone()))
     }
 
-    pub fn send_external(&self, prefix: &Path, external: External, listener: Vec<RListener>) {
+    /// Routes delegated data to the correct `Zone`
+    pub fn send_external(&self, prefix: &Path, external: External) {
         let mut path = prefix.clone();
 
         // TODO: zone may be remote
@@ -71,7 +72,23 @@ impl ManagerHandle {
 
         let zone = self.load(&path);
 
-        zone.merge_with_listeners(external.parent_vis, external.node, listener); // TODO flow control
+        zone.merge(external.tree); // TODO flow control
+    }
+
+    /// Routes delegated data to the correct `Zone` with a list of listeners.
+    pub fn send_external_with_listeners(&self, prefix: &Path, external: External, listeners: Vec<RListener>) {
+        let mut path = prefix.clone();
+
+        // TODO: zone may be remote
+
+        // Borrow checker doesn't like:
+        //   path.append(&mut external.path);
+        let mut p = external.path;
+        path.append(&mut p);
+
+        let zone = self.load(&path);
+
+        zone.merge_with_listeners(external.tree, listeners); // TODO flow control
     }
 
     pub fn send_externals(&self, prefix: &Path, externals: Vec<External>) {
@@ -86,7 +103,7 @@ impl ManagerHandle {
 
             let zone = self.load(&path);
 
-            zone.merge(external.parent_vis, external.node); // TODO flow control
+            zone.merge(external.tree); // TODO flow control
             path.truncate(len);
         }
     }

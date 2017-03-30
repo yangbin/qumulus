@@ -16,13 +16,13 @@ use command::Call;
 use delegate::delegate;
 use listener::{Listener, RListener};
 use manager::ManagerHandle;
-use node::{DelegatedMatch, Node, Update, Vis};
+use node::{DelegatedMatch, Node, Update, Vis, NodeTree};
 use path::Path;
 
+/// Persistent Zone data
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct ZoneData {
-    node: Node, // Mergeable data for this Zone
-    vis: Vis    // Visibility of this Zone through ancestors
+    tree: NodeTree // Mergeable data for this Zone
 }
 
 /// Public shareable handle to a `Zone`
@@ -38,8 +38,8 @@ enum ZoneCall {
     Hibernate,
     Load,
     Loaded(ZoneData),
-    Merge(Vis, Node),
-    MergeWithListeners(Vis, Node, Vec<RListener>),
+    Merge(NodeTree),
+    MergeWithListeners(NodeTree, Vec<RListener>),
     Save,
     Saved,
     Size(Sender<usize>),
@@ -101,14 +101,14 @@ impl ZoneHandle {
 
     /// Merge data into this `Zone`. The effective parent visibility (through all ancestors) must
     /// be provided.
-    pub fn merge(&self, parent_vis: Vis, diff: Node) {
-        self.tx.send(ZoneCall::Merge(parent_vis, diff)).unwrap();
+    pub fn merge(&self, diff: NodeTree) {
+        self.tx.send(ZoneCall::Merge(diff)).unwrap();
     }
 
     /// Same as `merge` except a list of listeners is also provided. The listeners expect to see
     /// changes that would bring them up to date with data in this `Zone`
-    pub fn merge_with_listeners(&self, parent_vis: Vis, diff: Node, listeners: Vec<RListener>) {
-        self.tx.send(ZoneCall::MergeWithListeners(parent_vis, diff, listeners)).unwrap();
+    pub fn merge_with_listeners(&self, diff: NodeTree, listeners: Vec<RListener>) {
+        self.tx.send(ZoneCall::MergeWithListeners(diff, listeners)).unwrap();
     }
 
     pub fn path(&self) -> Path {
@@ -218,10 +218,12 @@ impl Zone {
         Zone {
             path: path.clone(),
             data: ZoneData {
-                node: Node::expand(Value::Null, 0),
-                vis: match path.len() {
-                    0 => Vis::permanent(),
-                    _ => Default::default()
+                tree: NodeTree {
+                    node: Default::default(),
+                    vis: match path.len() {
+                        0 => Vis::permanent(),
+                        _ => Default::default()
+                    }
                 }
             },
             state: Default::default(),
@@ -276,12 +278,12 @@ impl Zone {
             ZoneCall::Loaded(data) => {
                 self.loaded(data);
             },
-            ZoneCall::Merge(vis, diff) => {
-                self.merge(vis, diff);
+            ZoneCall::Merge(diff) => {
+                self.merge(diff);
                 self.split_check();
             },
-            ZoneCall::MergeWithListeners(vis, diff, listeners) => {
-                self.merge_with_listeners(vis, diff, listeners);
+            ZoneCall::MergeWithListeners(diff, listeners) => {
+                self.merge_with_listeners(diff, listeners);
                 self.split_check();
             },
             ZoneCall::Hibernate => {
@@ -343,21 +345,14 @@ impl Zone {
 
         let diff = node.prepend_path(&path.path);
 
-        self.merge(Default::default(), diff);
+        self.merge(diff.noop_vis());
         // TODO: externals goes to external nodes
         // TODO: diff goes to replicas
     }
 
     /// Merge value(s). Merge is generic and most operations are defined as a merge.
-    pub fn merge(&mut self, mut parent_new_vis: Vis, mut diff: Node) {
-        let (update, externals) = {
-            let ZoneData { ref mut node, vis } = self.data;
-
-            parent_new_vis.merge(&vis); // 'new' vis cannot contain older data than current vis
-            node.merge(&mut diff, vis, parent_new_vis)
-        };
-
-        self.data.vis = parent_new_vis;
+    pub fn merge(&mut self, mut diff: NodeTree) {
+        let (update, externals) = self.data.tree.merge(&mut diff);
 
         // Only notify if there are changes
         if let Some(update) = update {
@@ -386,16 +381,16 @@ impl Zone {
                         retain
                     });
 
-                    self.manager.send_external(&self.path, external, x_listeners);
+                    self.manager.send_external_with_listeners(&self.path, external, x_listeners);
                 }
                 else {
                     // Data meant for delegated node
-                    self.manager.send_external(&self.path, external, vec![]);
+                    self.manager.send_external(&self.path, external);
                 }
             }
         }
 
-        if ! diff.is_noop() {
+        if ! diff.node.is_noop() {
             // TODO: diff goes to replicas
         }
     }
@@ -406,19 +401,15 @@ impl Zone {
     /// TODO: This might be better implemented as a merge_bind operation (where
     /// bind takes in a "cached values" parameter), which will solve the
     /// recursive delegation problem.
-    pub fn merge_with_listeners(&mut self, mut parent_new_vis: Vis, diff: Node, listeners: Vec<RListener>) {
+    pub fn merge_with_listeners(&mut self, diff: NodeTree, listeners: Vec<RListener>) {
         // First, bring listeners up to date
         let (update, externals) = {
-            let ZoneData { ref node, vis } = self.data;
-
-            parent_new_vis.merge(&vis); // 'new' vis cannot contain older data than current vis
-
             // TODO: workaround merge mutating receiver and argument
-            let mut node_clone = node.clone();
+            let mut tree_clone = self.data.tree.clone();
             let mut diff_clone = diff.clone();
 
             // merge "the other way" to get the reverse updates
-            diff_clone.merge(&mut node_clone, vis, parent_new_vis)
+            diff_clone.merge(&mut tree_clone)
         };
 
         if externals.len() > 0 {
@@ -441,7 +432,7 @@ impl Zone {
         }
 
         // Merge data delegated from parent
-        self.merge(parent_new_vis, diff);
+        self.merge(diff);
 
         // Add delegated listeners to `Zone`
         self.listeners.append(&mut listeners);
@@ -451,7 +442,7 @@ impl Zone {
     pub fn read(&self, path: &Path) -> (Option<Update>, Vec<DelegatedMatch>) {
         // TODO verify path
 
-        self.data.node.read(self.data.vis, path)
+        self.data.tree.read(path)
     }
 
     /// Load data if not already loaded. Usually called by `Manager` when sufficient memory is available.
@@ -469,7 +460,7 @@ impl Zone {
     pub fn loaded(&mut self, mut data: ZoneData) {
         if self.state.is_loading() {
             if self.path.len() == 0 {
-                data.vis = Vis::permanent();
+                data.tree.vis = Vis::permanent();
             }
 
             self.data = data;
@@ -533,7 +524,7 @@ impl Zone {
     /// Get estimated size.
     pub fn size(&self) -> usize {
         // TODO: size does not handle cloaked data properly
-        self.data.node.total_byte_size()
+        self.data.tree.node.total_byte_size()
     }
 
     /// Get zone state.
@@ -546,7 +537,7 @@ impl Zone {
         // TODO verify path
         let diff = Node::expand_from(&path.path[..], value, ts);
 
-        self.merge(Default::default(), diff);
+        self.merge(diff.noop_vis());
     }
 
     fn dirty(&mut self) {
@@ -587,18 +578,17 @@ impl Zone {
         if self.writes >= 10 {
             self.writes = 0;
 
-            if let Some(delegate_node) = delegate(&self.data.node) {
-                self.merge(Default::default(), delegate_node);
+            if let Some(delegate_node) = delegate(&self.data.tree.node) {
+                self.merge(delegate_node.noop_vis());
             }
         }
     }
 }
 
 impl ZoneData {
-    pub fn new(vis: Vis, node: Node) -> ZoneData {
+    pub fn new(tree: NodeTree) -> ZoneData {
         ZoneData {
-            node: node,
-            vis: vis
+            tree: tree
         }
     }
 }

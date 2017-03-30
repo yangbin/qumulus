@@ -276,12 +276,14 @@ fn test_read_write() {
 
     assert_eq!(blocking_read(&file).unwrap(), data);
 
-    use node::{Node, Vis};
+    use node::{Node, NodeTree, Vis};
     use serde_json::Value as JSON;
 
     let expected = ZoneData::new(
-        Vis::update(1000),
-        Node::expand(JSON::String(String::from("moo")), 1000)
+        NodeTree {
+            vis: Vis::update(1000),
+            node: Node::expand(JSON::String(String::from("moo")), 1000)
+        }
     );
 
     let limit = bincode::Infinite;
