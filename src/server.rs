@@ -1,4 +1,4 @@
-//use std::net::TcpListener;
+use std::net::SocketAddr;
 use std::thread;
 
 use mioco::tcp::TcpListener;
@@ -8,27 +8,24 @@ use client::Client;
 use manager::ManagerHandle;
 
 pub struct Server {
-    port: u16,
+    addr: SocketAddr,
     manager: ManagerHandle
 }
 
 impl Server {
-    pub fn new(manager: ManagerHandle, port: u16) -> Server {
+    pub fn new(manager: ManagerHandle, addr: &SocketAddr) -> Server {
         Server {
-            port: port,
+            addr: addr.clone(),
             manager: manager
         }
     }
 
     pub fn listen(&self) {
         let manager = self.manager.clone();
-        let port = self.port;
+        let addr = self.addr.clone();
 
         thread::spawn(move|| {
             mioco::start(move|| {
-                use std::net::SocketAddr;
-
-                let addr = SocketAddr::new("127.0.0.1".parse().unwrap(), port);
                 let listener = TcpListener::bind(&addr).unwrap();
 
                 println!("Listening on {:?}", listener.local_addr());
