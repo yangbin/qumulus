@@ -8,6 +8,7 @@ use mioco;
 use mioco::sync::mpsc::{channel, Receiver, Sender};
 use rand;
 
+use cluster::{ClusterHandle,ClusterPreHandle};
 use listener::RListener;
 use node::External;
 use path::Path;
@@ -19,6 +20,7 @@ const MAX_LOADED_HARD: usize = 800;
 
 #[derive(Clone)]
 pub struct ManagerHandle {
+    pub cluster: ClusterHandle,
     pub store: StoreHandle,
     tx: Sender<(Option<Sender<Box<Any + Send>>>, ManagerCall)>
 }
@@ -37,6 +39,7 @@ pub enum ManagerCall {
 }
 
 pub struct Manager {
+    cluster: ClusterHandle,
     eviction: EvictionHandle,
     store: StoreHandle,
     active: BTreeMap<Path, ZoneHandle>,
@@ -146,6 +149,16 @@ impl ManagerHandle {
     fn cast(&self, msg: ManagerCall) {
         self.tx.send((None, msg)).unwrap();
     }
+
+    /// Creates a noop ManagerHandle for testing
+    #[cfg(test)]
+    pub fn test_handle() -> ManagerHandle {
+        ManagerHandle {
+            tx: channel().0,
+            cluster: ClusterHandle::test_handle(),
+            store: StoreHandle::test_handle()
+        }
+    }
 }
 
 impl Manager {
@@ -165,8 +178,10 @@ impl Manager {
     pub fn new(store: StoreHandle) -> Manager {
         let eviction = EvictionManager::spawn();
         let (tx, rx) = channel();
+        let cluster = ClusterPreHandle::new();
 
-        Manager {
+        let manager = Manager {
+            cluster: cluster.handle.clone(),
             eviction: eviction,
             store: store,
             active: BTreeMap::new(),
@@ -174,11 +189,19 @@ impl Manager {
             requesting_load: VecDeque::new(),
             tx: tx,
             rx: rx
-        }
+        };
+
+        cluster.spawn(manager.handle());
+
+        manager
     }
 
     fn handle(&self) -> ManagerHandle {
-        ManagerHandle { tx: self.tx.clone(), store: self.store.clone() }
+        ManagerHandle {
+            tx: self.tx.clone(),
+            cluster: self.cluster.clone(),
+            store: self.store.clone()
+        }
     }
 
     fn message_loop(mut self) {

@@ -17,6 +17,7 @@ extern crate threadpool;
 extern crate time;
 
 pub mod client;
+pub mod cluster;
 pub mod command;
 pub mod delegate;
 pub mod listener;
@@ -63,6 +64,18 @@ fn main() {
     server.listen();
 
     println!("listening on: {}", id.addr());
+
+    let replicas: Vec<replica::Replica> = match std::env::var("CLUSTER") {
+        Ok(r) => r.split(' ').map(|r| r.parse().unwrap()).collect(),
+        Err(_) => vec![]
+    };
+
+    println!("Adding replicas:");
+
+    for replica in replicas {
+        println!("  {:?}", &replica);
+        manager.cluster.add(replica);
+    }
 
     let stdin = std::io::stdin();
 

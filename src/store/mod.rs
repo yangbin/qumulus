@@ -69,6 +69,16 @@ impl StoreHandle {
 
         self.tx.send(StoreCall::Write(zone.clone(), path.clone(), serialized)).unwrap();
     }
+
+    /// Creates a noop StoreHandle for testing
+    #[cfg(test)]
+    pub fn test_handle() -> StoreHandle {
+        use std::sync::mpsc::channel;
+
+        StoreHandle {
+            tx: channel().0
+        }
+    }
 }
 
 impl fmt::Display for StoreError {

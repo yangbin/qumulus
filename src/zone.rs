@@ -18,6 +18,7 @@ use listener::{Listener, RListener};
 use manager::ManagerHandle;
 use node::{DelegatedMatch, Node, Update, Vis, NodeTree};
 use path::Path;
+use replica::Replica;
 
 /// Persistent Zone data
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
@@ -44,7 +45,8 @@ enum ZoneCall {
     Save,
     Saved,
     Size(Sender<usize>),
-    State(Sender<ZoneState>)
+    State(Sender<ZoneState>),
+    SyncReplicas(Vec<Replica>, Sender<()>)
 }
 
 struct UserCommand {
@@ -144,6 +146,29 @@ impl ZoneHandle {
 
         self.tx.send(ZoneCall::State(tx)).unwrap();
         rx.recv().unwrap()
+    }
+
+    /// Updates Zone's replicas
+    pub fn sync_replicas(&self, replicas: Vec<Replica>) {
+        let (tx, rx) = channel();
+
+        self.tx.send(ZoneCall::SyncReplicas(replicas, tx)).unwrap();
+        rx.recv().unwrap()
+    }
+
+    /// Creates a noop ZoneHandle for testing
+    #[cfg(test)]
+    pub fn test_handle(path: Arc<Path>) -> ZoneHandle {
+        let (tx, rx) = channel();
+
+        use std::mem;
+
+        mem::forget(rx);
+
+        ZoneHandle {
+            path: path,
+            tx: tx
+        }
     }
 }
 
@@ -302,6 +327,10 @@ impl Zone {
             },
             ZoneCall::State(reply) => {
                 reply.send(self.state()).unwrap();
+            },
+            ZoneCall::SyncReplicas(replicas, reply) => {
+                self.sync_replicas(replicas);
+                reply.send(()).unwrap();
             }
         }
     }
@@ -532,6 +561,11 @@ impl Zone {
     /// Get zone state.
     pub fn state(&self) -> ZoneState {
         self.state
+    }
+
+    /// Updates Zone's replicas
+    pub fn sync_replicas(&self, replicas: Vec<Replica>) {
+        println!("[sync_replicas - {:?}] - {:?} - Implement me!", replicas, &self.path);
     }
 
     /// Writes value(s) to the node at `path` at time `ts`

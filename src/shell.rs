@@ -27,6 +27,7 @@ impl<W: Write> Shell<W> {
             if let Ok(line) = line {
                 match line.as_ref() {
                     "active" => self.active(),
+                    "cluster.sync" => self.sync(),
                     "exit" | "quit" | "shutdown" => self.shutdown(),
                     "" => (),
                     _ => println!("Bad command")
@@ -60,5 +61,10 @@ impl<W: Write> Shell<W> {
 
         // TODO: exit is not clean, destructors not called, files/sockets not flushed
         process::exit(0);
+    }
+
+    fn sync(&mut self) {
+        writeln!(self.writer, "Synchronizing cluster membership...").unwrap();
+        self.manager.cluster.sync();
     }
 }
