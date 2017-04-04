@@ -10,7 +10,7 @@ pub mod null;
 
 use std::error::Error;
 use std::fmt;
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{channel,Sender};
 
 use bincode;
 
@@ -25,6 +25,7 @@ pub struct StoreHandle {
 
 /// Used for dispatching calls via message passing.
 pub enum StoreCall {
+    List(Sender<Path>),
     Load(ZoneHandle, Path),
     RequestWrite(ZoneHandle),
     Write(ZoneHandle, Path, Vec<u8>)
@@ -39,6 +40,17 @@ pub enum StoreError {
 }
 
 impl StoreHandle {
+    /// Gets a list of Zone Paths stored locally
+    pub fn each_zone<F>(&self, mut f: F) where F: FnMut(Path) {
+        let (tx, rx) = channel();
+
+        self.tx.send(StoreCall::List(tx)).unwrap();
+
+        for p in rx.iter() {
+            f(p)
+        }
+    }
+
     /// Reads data for a given zone path and sends data back directly to the `Zone`.
     pub fn load(&self, zone: &ZoneHandle, path: &Path) {
         self.tx.send(StoreCall::Load(zone.clone(), path.clone())).unwrap();

@@ -76,9 +76,44 @@ impl FS {
             let call = self.rx.recv().unwrap();
 
             match call {
+                StoreCall::List(reply) => self.list(reply),
                 StoreCall::Load(zone, path) => self.load(zone, path),
                 StoreCall::RequestWrite(zone) => self.request_write(zone),
                 StoreCall::Write(zone, path, data) => self.write(zone, path, data)
+            }
+        }
+    }
+
+    /// Lists all Zone Paths stored locally
+    pub fn list(&self, tx: Sender<Path>) {
+        let entries = match std::fs::read_dir(&self.dir) {
+            Err(err) => {
+                error!("Error listing directory.");
+                error!("  {:?}", err);
+                return;
+            },
+            Ok(entries) => entries
+        };
+
+        for entry in entries {
+            let entry = match entry {
+                Err(err) => {
+                    error!("Error reading entry.");
+                    error!("  {:?}", err);
+                    return;
+                },
+                Ok(entry) => entry
+            };
+
+
+            match blocking_read(&entry.path()) {
+                Err(err) => {
+                    error!("Error loading {:?}: {}", entry, err.description());
+                    error!("  {:?}", err);
+                },
+                Ok(node) => {
+                    tx.send(node.path).unwrap();
+                }
             }
         }
     }
@@ -253,7 +288,7 @@ fn zonefilename(path: &Path) -> String {
 
 #[test]
 fn test_read_write() {
-    let dir = std::path::PathBuf::from("test_data");
+    let dir = std::path::PathBuf::from("test_data/read_write");
 
     if ! dir.is_dir() {
         DirBuilder::new().recursive(true).create(&dir).unwrap();
@@ -280,6 +315,7 @@ fn test_read_write() {
     use serde_json::Value as JSON;
 
     let expected = ZoneData::new(
+        Path::empty(),
         NodeTree {
             vis: Vis::update(1000),
             node: Node::expand(JSON::String(String::from("moo")), 1000)
@@ -294,4 +330,43 @@ fn test_read_write() {
     let verify = blocking_read(&file).unwrap();
 
     assert_eq!(verify, expected);
+}
+
+#[test]
+fn test_list() {
+    let dir = std::path::PathBuf::from("test_data/list");
+
+    if dir.exists() {
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    let store = FS::new("test_data/list");
+
+    let noop_zone = ZoneHandle::test_handle(Arc::new(path![]));
+    let limit = bincode::Infinite;
+
+    for i in 0..3 {
+        let path = Path::new(vec![i.to_string()]);
+        let zone_data = ZoneData::new(path.clone(), Default::default());
+
+        let serialized = bincode::serialize(&zone_data, limit).unwrap();
+
+        store.write(noop_zone.clone(), path, serialized);
+    }
+
+    std::thread::sleep(std::time::Duration::from_millis(200));
+
+    let (tx, rx) = channel();
+
+    store.list(tx);
+
+    let mut paths: Vec<Path> = rx.iter().collect();
+
+    paths.sort();
+
+    assert_eq!(paths, [
+        Path::new(vec!["0".into()]),
+        Path::new(vec!["1".into()]),
+        Path::new(vec!["2".into()]),
+    ]);
 }

@@ -22,7 +22,8 @@ use path::Path;
 /// Persistent Zone data
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct ZoneData {
-    tree: NodeTree // Mergeable data for this Zone
+    pub path: Path,    // TODO: repeated data needed for persistence
+    pub tree: NodeTree // Mergeable data for this Zone
 }
 
 /// Public shareable handle to a `Zone`
@@ -213,11 +214,12 @@ impl Zone {
     pub fn new(manager: ManagerHandle, path: &Path) -> Zone {
         let (tx, rx) = channel();
 
-        let path = Arc::new(path.clone());
+        let arc_path = Arc::new(path.clone());
 
         Zone {
-            path: path.clone(),
+            path: arc_path.clone(),
             data: ZoneData {
+                path: path.clone(),
                 tree: NodeTree {
                     node: Default::default(),
                     vis: match path.len() {
@@ -228,7 +230,7 @@ impl Zone {
             },
             state: Default::default(),
             manager: manager,
-            handle: ZoneHandle { path: path.clone(), tx: tx },
+            handle: ZoneHandle { path: arc_path, tx: tx },
             rx: rx,
             queued: vec![],
             listeners: vec![],
@@ -463,7 +465,7 @@ impl Zone {
                 data.tree.vis = Vis::permanent();
             }
 
-            self.data = data;
+            self.data.tree = data.tree;
             self.state.set(ZoneState::ACTIVE);
 
             let queued = self.queued.split_off(0);
@@ -483,7 +485,7 @@ impl Zone {
     pub fn hibernate(&mut self) {
         if self.state.is_active() {
             self.state.set(ZoneState::IDLE);
-            self.data = Default::default();
+            self.data.tree = Default::default();
             self.manager.zone_hibernated(self.handle.clone());
         }
         else {
@@ -586,8 +588,9 @@ impl Zone {
 }
 
 impl ZoneData {
-    pub fn new(tree: NodeTree) -> ZoneData {
+    pub fn new(path: Path, tree: NodeTree) -> ZoneData {
         ZoneData {
+            path: path,
             tree: tree
         }
     }

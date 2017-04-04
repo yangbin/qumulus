@@ -22,7 +22,7 @@ pub mod delegate;
 pub mod listener;
 pub mod manager;
 pub mod node;
-pub mod path;
+#[macro_use] pub mod path;
 pub mod replica;
 pub mod shell;
 pub mod server;

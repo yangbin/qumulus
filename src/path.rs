@@ -2,7 +2,7 @@
 
 use serde_json::Value;
 
-#[derive(Clone, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Default, Deserialize, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub struct Path {
     pub path: Vec<String>
 }

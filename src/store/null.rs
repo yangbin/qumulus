@@ -41,11 +41,16 @@ impl Null {
             let call = self.rx.recv().unwrap();
 
             match call {
+                StoreCall::List(reply) => self.list(reply),
                 StoreCall::Load(zone, path) => self.load(zone, &path),
                 StoreCall::RequestWrite(zone) => self.request_write(zone),
                 StoreCall::Write(zone, path, data) => self.write(zone, &path, &data)
             }
         }
+    }
+
+    /// Lists all Zone Paths stored locally
+    pub fn list(&self, _: Sender<Path>) {
     }
 
     /// Loads data for a `Zone` asynchronously, notifying its handle when done. Will always load an
