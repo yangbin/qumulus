@@ -21,11 +21,11 @@ pub struct RListener {
 }
 
 impl Listener {
-    pub fn new(root: Arc<Path>, path: Arc<Path>, tx: &Sender<String>) -> Listener {
+    pub fn new(root: Arc<Path>, path: Arc<Path>, tx: Sender<String>) -> Listener {
         Listener {
             root: root,
             path: path,
-            tx: tx.clone()
+            tx: tx
         }
     }
 
@@ -62,6 +62,6 @@ impl RListener {
     }
 
     pub fn to_absolute(self, path: Arc<Path>) -> Listener {
-        Listener::new(path, Arc::new(self.path), &self.tx.clone())
+        Listener::new(path, Arc::new(self.path), self.tx)
     }
 }

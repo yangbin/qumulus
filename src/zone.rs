@@ -295,7 +295,7 @@ impl Zone {
     fn handle_call(&mut self, call: ZoneCall) {
         match call {
             ZoneCall::UserCommand(cmd) => {
-                let result = self.dispatch(cmd.command, &cmd.listener);
+                let result = self.dispatch(cmd.command, cmd.listener);
 
                 cmd.reply.send(result).unwrap(); // TODO: don't crash the Zone!
             },
@@ -335,7 +335,7 @@ impl Zone {
         }
     }
 
-    pub fn dispatch(&mut self, command: Command, tx: &Sender<String>) -> ZoneResult {
+    pub fn dispatch(&mut self, command: Command, tx: Sender<String>) -> ZoneResult {
         match command.call {
             Call::Bind => {
                 let (update, delegated) = self.bind(&command.path, tx);
@@ -362,7 +362,7 @@ impl Zone {
     }
 
     /// Bind value(s)
-    pub fn bind(&mut self, path: &Path, tx: &Sender<String>) -> (Option<Update>, Vec<DelegatedMatch>) {
+    pub fn bind(&mut self, path: &Path, tx: Sender<String>) -> (Option<Update>, Vec<DelegatedMatch>) {
         // TODO verify path
         // TODO don't sub if path has been delegated completely
 
@@ -604,7 +604,7 @@ impl Zone {
         });
     }
 
-    fn sub(&mut self, path: &Path, tx: &Sender<String>) {
+    fn sub(&mut self, path: &Path, tx: Sender<String>) {
         let listener = Listener::new(self.path.clone(), Arc::new(path.clone()), tx);
 
         self.listeners.push(listener);
