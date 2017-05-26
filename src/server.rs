@@ -13,9 +13,9 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(manager: ManagerHandle, addr: &SocketAddr) -> Server {
+    pub fn new(manager: ManagerHandle, addr: SocketAddr) -> Server {
         Server {
-            addr: addr.clone(),
+            addr: addr,
             manager: manager
         }
     }
@@ -27,8 +27,6 @@ impl Server {
         thread::spawn(move|| {
             mioco::start(move|| {
                 let listener = TcpListener::bind(&addr).unwrap();
-
-                println!("Listening on {:?}", listener.local_addr());
 
                 accept_loop(manager, listener);
             }).unwrap();

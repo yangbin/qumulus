@@ -3,7 +3,6 @@ name = "qumulus"
 version = "0.1.0"
 authors = ["Kwok Yang Bin <yangbin@fragnetics.com>"]
 
-
 [dependencies]
 bincode = { git = "https://github.com/TyOverby/bincode.git" }
 env_logger = "*"

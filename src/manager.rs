@@ -12,6 +12,7 @@ use cluster::{ClusterHandle,ClusterPreHandle};
 use listener::RListener;
 use node::External;
 use path::Path;
+use replica::Replica;
 use store::StoreHandle;
 use zone::{Zone, ZoneHandle};
 
@@ -63,7 +64,7 @@ impl ManagerHandle {
     }
 
     /// Routes delegated data to the correct `Zone`
-    pub fn send_external(&self, prefix: &Path, external: External) {
+    pub fn send_external(&self, prefix: &Path, external: External, replicate: bool) {
         let mut path = prefix.clone();
 
         // TODO: zone may be remote
@@ -75,7 +76,7 @@ impl ManagerHandle {
 
         let zone = self.load(&path);
 
-        zone.merge(external.tree); // TODO flow control
+        zone.merge(external.tree, replicate); // TODO flow control
     }
 
     /// Routes delegated data to the correct `Zone` with a list of listeners.
@@ -106,7 +107,7 @@ impl ManagerHandle {
 
             let zone = self.load(&path);
 
-            zone.merge(external.tree); // TODO flow control
+            zone.merge(external.tree, true); // TODO flow control
             path.truncate(len);
         }
     }
@@ -162,8 +163,9 @@ impl ManagerHandle {
 }
 
 impl Manager {
-    pub fn spawn(store: StoreHandle) -> ManagerHandle {
-        let manager = Manager::new(store);
+    pub fn spawn(id: Replica, store: StoreHandle) -> ManagerHandle {
+        let cluster = ClusterPreHandle::new();
+        let manager = Manager::new(store, &cluster);
         let handle = manager.handle();
 
         thread::spawn(move|| {
@@ -172,13 +174,14 @@ impl Manager {
             }).unwrap();
         });
 
+        cluster.spawn(id, handle.clone());
+
         handle
     }
 
-    pub fn new(store: StoreHandle) -> Manager {
+    pub fn new(store: StoreHandle, cluster: &ClusterPreHandle) -> Manager {
         let eviction = EvictionManager::spawn();
         let (tx, rx) = channel();
-        let cluster = ClusterPreHandle::new();
 
         let manager = Manager {
             cluster: cluster.handle.clone(),
@@ -190,8 +193,6 @@ impl Manager {
             tx: tx,
             rx: rx
         };
-
-        cluster.spawn(manager.handle());
 
         manager
     }
@@ -225,6 +226,7 @@ impl Manager {
         }
     }
 
+    /// Gets a handle to a Zone. This function does not block for the Zone to actually load.
     pub fn load(&mut self, path: &Path) -> ZoneHandle {
         if let Some(zone) = self.active.get(path) {
             return zone.clone();
@@ -417,7 +419,8 @@ fn test_find_nearest() {
     use store;
 
     let store = store::null::Null::spawn();
-    let mut manager = Manager::new(store);
+    let cluster = ClusterPreHandle::new();
+    let mut manager = Manager::new(store, &cluster);
 
     let root        = Path::new(vec![]);
     let moo         = Path::new(vec!["moo".into()]);
@@ -445,7 +448,8 @@ fn test_load() {
     use store;
 
     let store = store::null::Null::spawn();
-    let mut manager = Manager::new(store);
+    let cluster = ClusterPreHandle::new();
+    let mut manager = Manager::new(store, &cluster);
     let root = Path::new(vec![]);
     let zone = manager.load(&root);
 

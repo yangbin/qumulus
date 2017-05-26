@@ -52,18 +52,17 @@ fn main() {
     println!("  ID / address: {:?}", &id);
 
     let store = store::fs::FS::spawn(&("data_".to_string() + id_str));
-    let manager = manager::Manager::spawn(store);
+    let manager = manager::Manager::spawn(id.clone(), store);
 
     let path = path::Path::empty();
     manager.load(&path);
 
-    let server = server::Server::new(manager.clone(), id.addr());
+    println!("Listening addresses:");
+    println!("  API: {}", id.api_addr());
+    println!("  Peer: {}", id.peer_addr());
 
-    println!("root loaded: {}", manager.zone_loaded(&path));
-
+    let server = server::Server::new(manager.clone(), id.api_addr());
     server.listen();
-
-    println!("listening on: {}", id.addr());
 
     let replicas: Vec<replica::Replica> = match std::env::var("CLUSTER") {
         Ok(r) => r.split(' ').map(|r| r.parse().unwrap()).collect(),

@@ -6,14 +6,25 @@ use std::str::FromStr;
 /// Represents a Replica.
 ///
 /// Replicas are identified by an IP/port combination
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Replica {
     addr: SocketAddr
 }
 
 impl Replica {
-    pub fn addr(&self) -> &SocketAddr {
-        &self.addr
+    pub fn api_addr(&self) -> SocketAddr {
+        let addr = self.addr.clone();
+
+        addr
+    }
+
+    pub fn peer_addr(&self) -> SocketAddr {
+        let mut addr = self.addr.clone();
+        let port = addr.port() + 100;
+
+        addr.set_port(port);
+
+        addr
     }
 }
 
