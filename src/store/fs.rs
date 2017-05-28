@@ -78,6 +78,7 @@ impl FS {
             match call {
                 StoreCall::List(reply) => self.list(reply),
                 StoreCall::Load(zone, path) => self.load(zone, path),
+                StoreCall::LoadData(path, tx) => self.load_data(path, tx),
                 StoreCall::RequestWrite(zone) => self.request_write(zone),
                 StoreCall::Write(zone, path, data) => self.write(zone, path, data)
             }
@@ -120,10 +121,8 @@ impl FS {
 
     /// Loads data for a `Zone` asynchronously, notifying its handle when done.
     pub fn load(&self, zone: ZoneHandle, path: Path) {
-        let path = path.clone();
         let mut filepath = self.dir.clone();
 
-        // TODO threadpool
         self.read_pool.execute(move|| {
             debug!("Loading: {:?}", path);
 
@@ -145,6 +144,23 @@ impl FS {
         });
     }
 
+    /// Asynchronously load and send `ZoneData` for `Path` to channel.
+    pub fn load_data(&self, path: Path, tx: Sender<Option<ZoneData>>) {
+        let mut filepath = self.dir.clone();
+
+        self.read_pool.execute(move|| {
+            debug!("Loading: {:?}", path);
+
+            let filename = zonefilename(&path);
+
+            filepath.push(filename);
+
+            debug!("reading {}", filepath.display());
+
+            tx.send(blocking_read(&*filepath).ok()).is_ok(); // ignore if caller goes away
+        });
+    }
+
     /// Request for notification to write data.
     pub fn request_write(&self, zone: ZoneHandle) {
         if self.write_pool.active_count() >= NUM_THREADS {
@@ -163,7 +179,6 @@ impl FS {
 
         let pending = self.write_queue.clone();
 
-        // TODO threadpool
         self.write_pool.execute(move|| {
             debug!("Writing: {:?}", path);
 

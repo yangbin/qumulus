@@ -202,8 +202,11 @@ impl Cluster {
 
     /// Make sure each Zone is synchronized to all Replicas
     pub fn sync(&self) {
-        self.manager.store.each_zone(|_path| {
-            // TODO: implement this
+        self.manager.store.each_zone(|path| {
+            match self.manager.store.load_data(path.clone()) {
+                None => println!("Could not sync {:?}", path),
+                Some(data) => self.replicate(path, data.tree)
+            }
         })
     }
 }

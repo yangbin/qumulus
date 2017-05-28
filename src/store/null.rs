@@ -43,6 +43,7 @@ impl Null {
             match call {
                 StoreCall::List(reply) => self.list(reply),
                 StoreCall::Load(zone, path) => self.load(zone, &path),
+                StoreCall::LoadData(path, tx) => self.load_data(path, tx),
                 StoreCall::RequestWrite(zone) => self.request_write(zone),
                 StoreCall::Write(zone, path, data) => self.write(zone, &path, &data)
             }
@@ -57,6 +58,11 @@ impl Null {
     /// empty data set.
     pub fn load(&self, zone: ZoneHandle, _: &Path) {
         zone.loaded(Default::default());
+    }
+
+    /// Asynchronously load and send `ZoneData` for `Path` to channel.
+    pub fn load_data(&self, _path: Path, tx: Sender<Option<ZoneData>>) {
+        tx.send(Some(Default::default())).is_ok(); // ignore if caller goes away
     }
 
     /// Request for notification to write data. Never gonna happen.

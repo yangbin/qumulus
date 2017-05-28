@@ -27,6 +27,7 @@ pub struct StoreHandle {
 pub enum StoreCall {
     List(Sender<Path>),
     Load(ZoneHandle, Path),
+    LoadData(Path, Sender<Option<ZoneData>>),
     RequestWrite(ZoneHandle),
     Write(ZoneHandle, Path, Vec<u8>)
 }
@@ -51,9 +52,18 @@ impl StoreHandle {
         }
     }
 
-    /// Reads data for a given zone path and sends data back directly to the `Zone`.
+    /// Reads data for a given zone path and sends data back directly to the `Zone` asynchronously.
     pub fn load(&self, zone: &ZoneHandle, path: &Path) {
         self.tx.send(StoreCall::Load(zone.clone(), path.clone())).unwrap();
+    }
+
+    /// Reads data for a given zone path and returns it.
+    pub fn load_data(&self, path: Path) -> Option<ZoneData> {
+        let (tx, rx) = channel();
+
+        self.tx.send(StoreCall::LoadData(path, tx)).unwrap();
+
+        rx.recv().unwrap()
     }
 
     /// Ask for non-busy write notification.
