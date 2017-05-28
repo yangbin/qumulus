@@ -28,6 +28,7 @@ impl<W: Write> Shell<W> {
                 match line.as_ref() {
                     "active" => self.active(),
                     "cluster.sync" => self.sync(),
+                    "cluster.sync_all" => self.sync_all(),
                     "exit" | "quit" | "shutdown" => self.shutdown(),
                     "" => (),
                     _ => println!("Bad command")
@@ -64,7 +65,12 @@ impl<W: Write> Shell<W> {
     }
 
     fn sync(&mut self) {
-        writeln!(self.writer, "Synchronizing cluster membership...").unwrap();
+        writeln!(self.writer, "Synchronizing local data with cluster...").unwrap();
         self.manager.cluster.sync();
+    }
+
+    fn sync_all(&mut self) {
+        writeln!(self.writer, "Synchronizing cluster data...").unwrap();
+        self.manager.cluster.sync_all();
     }
 }

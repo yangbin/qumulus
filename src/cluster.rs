@@ -40,7 +40,8 @@ pub struct Cluster {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum ClusterMessage {
     /// Data to be merged for Path
-    Merge(Path, NodeTree)
+    Merge(Path, NodeTree),
+    Sync
 }
 
 /// Interface to Peer.
@@ -69,7 +70,8 @@ pub enum ClusterCall {
     Add(Replica),
     HandleClusterMessage(ClusterMessage),
     Replicate(Path, NodeTree),
-    Sync
+    Sync,
+    SyncAll
 }
 
 impl ClusterHandle {
@@ -81,6 +83,11 @@ impl ClusterHandle {
     /// Syncs all Zones.
     pub fn sync(&self) {
         self.send(ClusterCall::Sync);
+    }
+
+    /// Syncs all Zones on all Peers.
+    pub fn sync_all(&self) {
+        self.send(ClusterCall::SyncAll);
     }
 
     /// Replicate data to all replicas.
@@ -154,12 +161,13 @@ impl Cluster {
                 ClusterCall::Add(replica) => self.add(replica),
                 ClusterCall::HandleClusterMessage(msg) => self.handle_cluster_message(msg),
                 ClusterCall::Replicate(path, data) => self.replicate(path, data),
-                ClusterCall::Sync => self.sync()
+                ClusterCall::Sync => self.sync(),
+                ClusterCall::SyncAll => self.sync_all()
             }
         }
     }
 
-    /// Handles a message from the cluster
+    /// Handles a message from the cluster.
     fn handle_cluster_message(&self, msg: ClusterMessage) {
         match msg {
             ClusterMessage::Merge(path, data) => {
@@ -167,7 +175,8 @@ impl Cluster {
                 let zone = self.manager.load(&path);
 
                 zone.merge(data, false);
-            }
+            },
+            ClusterMessage::Sync => self.sync()
         }
     }
 
@@ -189,7 +198,7 @@ impl Cluster {
         // TODO: sync?
     }
 
-    /// Replicates data to all replicas
+    /// Replicates data to all replicas.
     pub fn replicate(&self, path: Path, data: NodeTree) {
         // TODO: shard
         // for now, replicate to all replicas
@@ -200,7 +209,7 @@ impl Cluster {
         }
     }
 
-    /// Make sure each Zone is synchronized to all Replicas
+    /// Synchronize each Zone to all Peers.
     pub fn sync(&self) {
         self.manager.store.each_zone(|path| {
             match self.manager.store.load_data(path.clone()) {
@@ -208,6 +217,20 @@ impl Cluster {
                 Some(data) => self.replicate(path, data.tree)
             }
         })
+    }
+
+    /// Request all peers to synchronize local data.
+    pub fn sync_all(&self) {
+        self.broadcast(ClusterMessage::Sync);
+        self.sync();
+    }
+
+    fn broadcast(&self, message: ClusterMessage) {
+        let message = Arc::new(message);
+
+        for (_addr, peer) in &self.peers {
+            peer.send(message.clone());
+        }
     }
 }
 
