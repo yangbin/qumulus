@@ -4,6 +4,7 @@
 //!
 //! `ZoneHandle` is the shareable / clonable public interface to a `Zone`.
 
+use std::collections::VecDeque;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
@@ -66,15 +67,15 @@ pub struct ZoneState {
 }
 
 pub struct Zone {
-    path: Arc<Path>,          // Path to this Zone
-    data: ZoneData,           // 'Atomic' data for this Zone
-    state: ZoneState,         // Current state of Zone
-    manager: ManagerHandle,   // Handle to manager
-    handle: ZoneHandle,       // Handle to zone
-    rx: Receiver<ZoneCall>,   // Zone message inbox
-    queued: Vec<ZoneCall>,    // When Zone data is not active, queue up all commands
-    listeners: Vec<Listener>, // List of binds
-    writes: u64               // Number of writes since last fragment check
+    path: Arc<Path>,            // Path to this Zone
+    data: ZoneData,             // 'Atomic' data for this Zone
+    state: ZoneState,           // Current state of Zone
+    manager: ManagerHandle,     // Handle to manager
+    handle: ZoneHandle,         // Handle to zone
+    rx: Receiver<ZoneCall>,     // Zone message inbox
+    queued: VecDeque<ZoneCall>, // When Zone data is not active, queue up all commands
+    listeners: Vec<Listener>,   // List of binds
+    writes: u64                 // Number of writes since last fragment check
     // TODO: size: u64,
     // TODO: prefixes: Option<BTreeMap<String, Node>>
 }
@@ -246,7 +247,7 @@ impl Zone {
             manager: manager,
             handle: ZoneHandle { path: arc_path, tx: tx },
             rx: rx,
-            queued: vec![],
+            queued: VecDeque::new(),
             listeners: vec![],
             writes: 0
         }
@@ -254,12 +255,17 @@ impl Zone {
 
     fn message_loop(mut self) {
         loop {
-            let call = self.rx.recv().unwrap();
-
             if self.state.is_ready() {
+                // Handle possibly queued calls before we were ready
+                let call = self.queued.pop_front()
+                    .unwrap_or_else(|| self.rx.recv().unwrap());
+
                 self.handle_call(call);
             }
             else {
+                // Only handle calls where data not needed
+                let call = self.rx.recv().unwrap();
+
                 match call {
                     ZoneCall::Load |
                     ZoneCall::Loaded(_) |
@@ -269,7 +275,7 @@ impl Zone {
                         self.handle_call(call);
                     },
                     _ => {
-                        self.queued.push(call);
+                        self.queued.push_back(call);
 
                         if self.state.is_idle() {
                             self.manager.zone_request_load(self.handle.clone());
@@ -485,14 +491,6 @@ impl Zone {
 
             self.data.tree = data.tree;
             self.state.set(ZoneState::ACTIVE);
-
-            let queued = self.queued.split_off(0);
-
-            for call in queued {
-                // TODO: This re-orders requests. Find a better way. Required
-                //       for now as some state handling is not re-entrant
-                self.handle.tx.send(call).unwrap();
-            }
         }
         else {
             unimplemented!()
