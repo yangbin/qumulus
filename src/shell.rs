@@ -2,6 +2,7 @@ use std::io::prelude::*;
 use std::process;
 
 use manager::ManagerHandle;
+use path::Path;
 
 struct Shell<W> {
     manager: ManagerHandle,
@@ -25,13 +26,19 @@ impl<W: Write> Shell<W> {
         // Read loop
         for line in reader.lines() {
             if let Ok(line) = line {
-                match line.as_ref() {
-                    "active" => self.active(),
-                    "cluster.sync" => self.sync(),
-                    "cluster.sync_all" => self.sync_all(),
-                    "exit" | "quit" | "shutdown" => self.shutdown(),
-                    "" => (),
-                    _ => println!("Bad command")
+
+                let mut line = line.splitn(2, ' ');
+
+                match line.next() {
+                    Some("active") => self.active(),
+                    Some("cluster.sync") => self.sync(),
+                    Some("cluster.sync_all") => self.sync_all(),
+                    Some("store.dump") => self.store_dump(line.next().unwrap_or_default()),
+                    Some("zone.dump") => self.zone_dump(line.next().unwrap_or_default()),
+                    Some("zone.sync") => self.zone_sync(line.next().unwrap_or_default()),
+                    Some("exit") | Some("quit") | Some("shutdown") => self.shutdown(),
+                    Some("") => (),
+                    _ => writeln!(self.writer, "Bad command").unwrap()
                 }
 
                 self.writer.write(b"> ").unwrap();
@@ -72,5 +79,40 @@ impl<W: Write> Shell<W> {
     fn sync_all(&mut self) {
         writeln!(self.writer, "Synchronizing cluster data...").unwrap();
         self.manager.cluster.sync_all();
+    }
+
+    fn store_dump(&mut self, path: &str) {
+        let path = match path {
+            "" => Path::new(vec![]),
+            _ => Path::new(path.split('.').map(|s| s.into()).collect())
+        };
+
+        match self.manager.store.load_data(path.clone()) {
+            None => writeln!(self.writer, "Could not load {:?}", path),
+            Some(data) => writeln!(self.writer, "Store data: {:?}", data)
+        }.unwrap();
+    }
+
+    fn zone_dump(&mut self, path: &str) {
+        let path = match path {
+            "" => Path::new(vec![]),
+            _ => Path::new(path.split('.').map(|s| s.into()).collect())
+        };
+
+        let zone = self.manager.load(&path);
+
+        let data = zone.dump();
+
+        writeln!(self.writer, "Zone data: {:#?}", data).unwrap();
+    }
+
+    fn zone_sync(&mut self, path: &str) {
+        let path = match path {
+            "" => Path::new(vec![]),
+            _ => Path::new(path.split('.').map(|s| s.into()).collect())
+        };
+
+        writeln!(self.writer, "Synchronizing zone {:#?}...", &path).unwrap();
+        self.manager.cluster.sync_zone(path);
     }
 }

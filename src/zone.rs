@@ -37,6 +37,7 @@ pub struct ZoneHandle {
 /// Zones communicate via message passing. This enum is a list of valid calls.
 enum ZoneCall {
     UserCommand(UserCommand),
+    Dump(Sender<NodeTree>),
     Hibernate,
     Load,
     Loaded(ZoneData),
@@ -131,6 +132,15 @@ impl ZoneHandle {
         self.tx.send(ZoneCall::Saved).unwrap();
     }
 
+    /// Get raw data of this `Zone`
+    pub fn dump(&self) -> NodeTree {
+        let (tx, rx) = channel();
+
+        self.tx.send(ZoneCall::Dump(tx)).unwrap();
+        rx.recv().unwrap()
+    }
+
+    /// Get approximate storage size of this `Zone`
     pub fn size(&self) -> usize {
         let (tx, rx) = channel();
 
@@ -293,6 +303,9 @@ impl Zone {
                 let result = self.dispatch(cmd.command, cmd.listener);
 
                 cmd.reply.send(result).unwrap(); // TODO: don't crash the Zone!
+            },
+            ZoneCall::Dump(reply) => {
+                reply.send(self.dump()).unwrap();
             },
             ZoneCall::Load => {
                 self.load();
@@ -537,6 +550,11 @@ impl Zone {
     /// Get zone path.
     pub fn path(&self) -> Path {
         (*self.path).clone()
+    }
+
+    /// Get raw data.
+    pub fn dump(&self) -> NodeTree {
+        self.data.tree.clone()
     }
 
     /// Get estimated size.

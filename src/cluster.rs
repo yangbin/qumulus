@@ -71,7 +71,8 @@ pub enum ClusterCall {
     HandleClusterMessage(ClusterMessage),
     Replicate(Path, NodeTree),
     Sync,
-    SyncAll
+    SyncAll,
+    SyncZone(Path)
 }
 
 impl ClusterHandle {
@@ -88,6 +89,11 @@ impl ClusterHandle {
     /// Syncs all Zones on all Peers.
     pub fn sync_all(&self) {
         self.send(ClusterCall::SyncAll);
+    }
+
+    /// Syncs Zone to all Peers.
+    pub fn sync_zone(&self, path: Path) {
+        self.send(ClusterCall::SyncZone(path));
     }
 
     /// Replicate data to all replicas.
@@ -162,7 +168,8 @@ impl Cluster {
                 ClusterCall::HandleClusterMessage(msg) => self.handle_cluster_message(msg),
                 ClusterCall::Replicate(path, data) => self.replicate(path, data),
                 ClusterCall::Sync => self.sync(),
-                ClusterCall::SyncAll => self.sync_all()
+                ClusterCall::SyncAll => self.sync_all(),
+                ClusterCall::SyncZone(path) => self.sync_zone(path)
             }
         }
     }
@@ -223,6 +230,15 @@ impl Cluster {
     pub fn sync_all(&self) {
         self.broadcast(ClusterMessage::Sync);
         self.sync();
+    }
+
+    /// Synchronize Zone to all Peers.
+    pub fn sync_zone(&self, path: Path) {
+        // TODO: does not check for non-existent Zones
+        match self.manager.store.load_data(path.clone()) {
+            None => println!("Could not sync {:?}", path),
+            Some(data) => self.replicate(path, data.tree)
+        }
     }
 
     fn broadcast(&self, message: ClusterMessage) {
