@@ -395,6 +395,9 @@ impl Zone {
         // Only notify if there are changes
         if let Some(update) = update {
             self.notify(&update);
+        }
+
+        if ! diff.node.is_noop() {
             self.writes += 1;
             self.dirty();
         }
@@ -406,9 +409,9 @@ impl Zone {
                 //   - unaffected by delegation
                 //   - delegated and no longer in scope for this Zone
                 //   - delegated but still in scope
-                if external.initial {
-                    let mut x_listeners = vec![];
+                let mut x_listeners = vec![];
 
+                if external.initial {
                     self.listeners.retain(|l| {
                         let (retain, x_listener) = l.delegate(&external.path);
 
@@ -418,12 +421,14 @@ impl Zone {
 
                         retain
                     });
+                }
 
-                    self.manager.send_external_with_listeners(&self.path, external, x_listeners);
+                // Data meant for delegated node
+                if x_listeners.is_empty() {
+                    self.manager.send_external(&self.path, external, replicate);
                 }
                 else {
-                    // Data meant for delegated node
-                    self.manager.send_external(&self.path, external, replicate);
+                    self.manager.send_external_with_listeners(&self.path, external, x_listeners);
                 }
             }
         }
@@ -450,17 +455,36 @@ impl Zone {
             diff_clone.merge(&mut tree_clone)
         };
 
-        if externals.len() > 0 {
-            // TODO: Zone has delegations so listeners need to be propagated to
-            // those external Zones as well.
-            println!("Warning: recursive delegation not handled");
-        }
-
         // Convert all RListeners to Listeners
         let mut listeners: Vec<_> = listeners
             .into_iter()
             .map(|l| l.to_absolute(self.path.clone()))
             .collect();
+
+        if externals.len() > 0 {
+            // Zone already has delegations so listeners need to
+            // be propagated to those external Zones as well.
+            for external in externals {
+                let mut x_listeners = vec![];
+
+                if external.initial {
+                    listeners.retain(|l| {
+                        let (retain, x_listener) = l.delegate(&external.path);
+
+                        if let Some(x_listener) = x_listener {
+                            x_listeners.push(x_listener);
+                        }
+
+                        retain
+                    });
+                }
+
+                // Recursively propagate listeners-with-cached-data
+                if ! x_listeners.is_empty() {
+                    self.manager.send_external_with_listeners(&self.path, external, x_listeners);
+                }
+            }
+        }
 
         // Only notify if there are backports
         if let Some(update) = update {

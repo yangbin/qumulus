@@ -106,7 +106,7 @@ impl Vis {
 
     /// Returns true if merging this `Vis` does nothing. Also `Default::default()`.
     pub fn is_noop(&self) -> bool {
-        self.updated == 0 && self.deleted == 0
+        *self == Default::default()
     }
 
     /// Returns visibility of `Vis`.
@@ -203,10 +203,10 @@ impl Node {
         }
     }
 
-    /// Returns all data that should be external
+    /// Moves out all data that should be external and returns it.
     pub fn delegated(&mut self) -> Node {
         Node {
-            vis: self.vis,
+            vis: mem::replace(&mut self.vis, Default::default()),
             value: mem::replace(&mut self.value, Value::Null),
             keys: mem::replace(&mut self.keys, None),
             delegated: self.delegated
@@ -229,7 +229,7 @@ impl Node {
     }
 
     pub fn is_noop(&self) -> bool {
-        self.vis.is_noop() && self.value == Value::Null && self.keys.is_none()
+        *self == Default::default()
     }
 
     /// Returns number of child nodes.
@@ -415,7 +415,7 @@ impl Update {
             return JSON::Array(vec![JSON::Null, changed, value])
         }
 
-        if path[0] == "**" {
+        if path[0] == "**" || path[0] == "*#" {
             return self.to_json();
         }
 
@@ -493,6 +493,9 @@ impl Update {
 ///
 /// Note that `vis_old` and `vis_new` are NOT merged. They should be de-conflicted before calling
 /// this function.
+///
+/// If `node` is mutated, it is guaranteed that `diff.is_noop()` be false.
+/// TODO: implement the guarantee less conservatively
 fn merge(
     stack: &mut Path,
     node: &mut Node,
@@ -630,6 +633,8 @@ fn merge(
                     // Existing node exists, so recursively merge
                     let child_update = merge(stack, entry.get_mut(), diff_child, vis_old, vis_new, externals);
                     update.add_child(k, child_update);
+
+                    // TODO: remove from diff_keys if noop
                 },
                 Entry::Vacant(entry) => {
                     // No existing node, merge to empty node
@@ -637,7 +642,7 @@ fn merge(
 
                     let child_update = merge(stack, &mut node_child, diff_child, vis_old, vis_new, externals);
 
-                    if child_update.is_some() {
+                    if ! node_child.is_noop() {
                         // If there are actual changes, keep node child
                         entry.insert(node_child);
                     }
@@ -648,13 +653,19 @@ fn merge(
 
             stack.pop();
         }
+
+        // TODO: set diff.keys to None if empty
     }
+
+    // True if this node is transitioning to a delegated state
+    let mut initial_delegation = false;
 
     // Merge delegation (external) status of node
     if diff.delegated > 0 && diff.delegated > node.delegated {
         if stack.len() > 0 && (diff.delegated ^ node.delegated) & 1 == 1 {
             // delegation status changed
             update.delegated = Some(diff.delegated & 1 == 1);
+            initial_delegation = diff.delegated & 1 == 1;
         }
 
         node.delegated = diff.delegated;
@@ -664,7 +675,7 @@ fn merge(
     }
 
     // Handle delegated data
-    if stack.len() > 0 && node.delegated & 1 > 0 && (node.keys.is_some() || node.value != Value::Null) {
+    if stack.len() > 0 && node.delegated & 1 > 0 && (node.keys.is_some() || node.value != Value::Null || initial_delegation) {
         // TODO: add externals if effective vis changes
         // TODO: handle un-delegation
 
@@ -674,17 +685,21 @@ fn merge(
                 node: node.delegated(),
                 vis: vis_new
             },
-            initial: update.delegated.unwrap_or_default()
+            initial: initial_delegation
         };
 
         externals.push(external);
 
         // TODO: at this point, delegated data has been moved, so we better not crash
 
-        update.changed = false;
-        update.old = None;
-        update.new = None;
-        update.keys = None;
+        // We will let the delegated Zone notify listeners, so discard the update.
+        // However, if this is an initial delegation, we still need to update our listeners.
+        if ! initial_delegation {
+            update.changed = false;
+            update.old = None;
+            update.new = None;
+            update.keys = None;
+        }
     }
 
     // TODO: throw node / diff / update away if empty
@@ -708,9 +723,10 @@ fn read(stack: &mut Path,
 
     // Delegated data
     if stack.len() > 0 && node.delegated & 1 > 0 {
+        let delegated_match_spec = path.slice(pos).clone();
         let delegated = DelegatedMatch {
             path: stack.clone(),
-            match_spec: path.slice(pos).clone()
+            match_spec: delegated_match_spec
         };
 
         externals.push(delegated);
@@ -723,16 +739,11 @@ fn read(stack: &mut Path,
 
     let mut update: Update = Default::default();
 
-    if stack.len() >= path.len() {
-        // Get value at this node
-        if vis.is_visible() {
-            update.changed = true;
-            update.new = Some(node.value.clone());
-        }
-    }
+    // Set true to fetch value at this node
+    let mut read_self_value = stack.len() >= path.len();
 
     if pos < path.len() {
-        // Match / get child values
+        // Match / get child / self values
         let ref part = path.path[pos];
 
         if let Some(ref node_keys) = node.keys {
@@ -750,6 +761,22 @@ fn read(stack: &mut Path,
             }
             else if &*part == "**" {
                 // Match all recursively
+                for (k, node_child) in node_keys.iter() {
+                    stack.push(k);
+
+                    // convert part to "*#"
+                    let path = Path::new(vec!["*#".into()]);
+                    let child_update = read(stack, node_child, vis, &path, 0, externals);
+
+                    stack.pop();
+
+                    update.add_child(k, child_update);
+                }
+            }
+            else if &*part == "*#" {
+                // Match all recursively (also fetch self)
+                read_self_value = true;
+
                 for (k, node_child) in node_keys.iter() {
                     stack.push(k);
 
@@ -778,6 +805,20 @@ fn read(stack: &mut Path,
                     }
                 }
             }
+        }
+        else {
+            // no children, but still check if self should be read
+            if &*part == "*#" {
+                read_self_value = true;
+            }
+        }
+    }
+
+    if read_self_value {
+        // Get value at this node
+        if vis.is_visible() {
+            update.changed = true;
+            update.new = Some(node.value.clone());
         }
     }
 
@@ -816,7 +857,51 @@ fn test_expand() {
 
 #[test]
 fn test_merge() {
-    // TODO
+    let mut node = NodeTree {
+        node: Node {
+            vis: Vis { updated: 1201575709650540, deleted: 0 },
+            value: Value::Null,
+            keys: Some(map! {
+                "#5".into() => Node {
+                    vis: Vis { updated: 1201575625873458, deleted: 0 },
+                    value: Value::String("test".into()),
+                    keys: None,
+                    delegated: 0
+                },
+                "#I".into() => Node {
+                    vis: Vis { updated: 1201575640647792, deleted: 0 },
+                    value: Value::String("test".into()),
+                    keys: None,
+                    delegated: 0
+                },
+                "#K".into() => Node {
+                    vis: Vis { updated: 1201575709365982, deleted: 0 },
+                    value: Value::String("test".into()),
+                    keys: None,
+                    delegated: 0
+                },
+                "#S".into() => Node {
+                    vis: Vis { updated: 1201575313136481, deleted: 0 },
+                    value: Value::String("test".into()),
+                    keys: None,
+                    delegated: 0
+                },
+                "#W".into() => Node {
+                    vis: Vis { updated: 1201575709650540, deleted: 0 },
+                    value: Value::String("test".into()),
+                    keys: None,
+                    delegated: 0
+                }
+            }),
+            delegated: 1201576002005307
+        },
+        vis: Vis { updated: 1201575709650540, deleted: 0 }
+    };
+
+    let mut dup = node.clone();
+    let update = node.merge(&mut dup);
+
+    println!("update: {:#?}", update);
 }
 
 #[test]

@@ -15,6 +15,7 @@ macro_rules! path {
                 $(
                     match stringify!($p) {
                         "%" => "**".to_string(),
+                        "#" => "*#".to_string(),
                         p => p.to_string()
                     },
                 )*
@@ -82,9 +83,9 @@ impl Path {
                     retain = true;
                     continue;
                 },
-                Some(p) if &*p == "**" => {
-                    // Recursiive, retain and return delegated
-                    let listener = path!(%);
+                Some(p) if &*p == "**" || &*p == "*#" => {
+                    // Recursive, retain and return delegated
+                    let listener = path!(#);
                     return (true, Some(listener));
                 },
                 _ => {
@@ -184,17 +185,22 @@ fn test_delegate_match() {
     assert_eq!(p.unwrap(), path!());
 
     // % means **
+    // # means *#
     let (r, p) = d(path!(%), path!(moo));
     assert!(r);
-    assert_eq!(p.unwrap(), path!(%));
+    assert_eq!(p.unwrap(), path!(#));
 
     let (r, p) = d(path!(%), path!(moo.moo));
     assert!(r);
+    assert_eq!(p.unwrap(), path!(#));
+
+    let (r, p) = d(path!(moo.%), path!(moo));
+    assert!(!r);
     assert_eq!(p.unwrap(), path!(%));
 
     let (r, p) = d(path!(moo.%), path!(moo.moo));
     assert!(r);
-    assert_eq!(p.unwrap(), path!(%));
+    assert_eq!(p.unwrap(), path!(#));
 
     let (r, p) = d(path!(moo.%), path!(cow));
     assert!(r);
