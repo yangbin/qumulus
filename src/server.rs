@@ -4,37 +4,37 @@ use std::thread;
 use mioco::tcp::TcpListener;
 use mioco;
 
+use app::{App, AppHandle};
 use client::Client;
-use manager::ManagerHandle;
 
 pub struct Server {
     addr: SocketAddr,
-    manager: ManagerHandle
+    app: AppHandle
 }
 
 impl Server {
-    pub fn new(manager: ManagerHandle, addr: SocketAddr) -> Server {
+    pub fn new(app: &App, addr: SocketAddr) -> Server {
         Server {
             addr: addr,
-            manager: manager
+            app: app.handle()
         }
     }
 
     pub fn listen(&self) {
-        let manager = self.manager.clone();
         let addr = self.addr.clone();
+        let app = self.app.clone();
 
         thread::spawn(move|| {
             mioco::start(move|| {
                 let listener = TcpListener::bind(&addr).unwrap();
 
-                accept_loop(manager, listener);
+                accept_loop(app, listener);
             }).unwrap();
         });
     }
 }
 
-fn accept_loop(manager: ManagerHandle, listener: TcpListener) {
+fn accept_loop(app: AppHandle, listener: TcpListener) {
     loop {
         let stream = listener.accept();
 
@@ -42,7 +42,7 @@ fn accept_loop(manager: ManagerHandle, listener: TcpListener) {
             Ok(stream) => {
                 // connection succeeded
                 println!("Connection from: {}", stream.peer_addr().unwrap());
-                Client::new(manager.clone(), stream);
+                Client::new(app.clone(), stream);
             },
             Err(e) => {
                 // connection failed

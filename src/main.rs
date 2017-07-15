@@ -16,6 +16,7 @@ extern crate serde_json;
 extern crate threadpool;
 extern crate time;
 
+pub mod app;
 pub mod client;
 pub mod cluster;
 pub mod command;
@@ -51,17 +52,19 @@ fn main() {
 
     println!("  ID / address: {:?}", &id);
 
-    let store = store::fs::FS::spawn(&("data_".to_string() + id_str));
-    let manager = manager::Manager::spawn(id.clone(), store);
+    let mut app = app::App::new(id.clone());
 
-    let path = path::Path::empty();
-    manager.load(&path);
+    store::fs::FS::spawn(&mut app);
+    manager::Manager::spawn(&mut app);
+    cluster::Cluster::spawn(&mut app);
+
+    app.manager.load(&path::Path::empty());
 
     println!("Listening addresses:");
     println!("  API: {}", id.api_addr());
     println!("  Peer: {}", id.peer_addr());
 
-    let server = server::Server::new(manager.clone(), id.api_addr());
+    let server = server::Server::new(&app, id.api_addr());
     server.listen();
 
     let replicas: Vec<replica::Replica> = match std::env::var("CLUSTER") {
@@ -73,12 +76,12 @@ fn main() {
 
     for replica in replicas {
         println!("  {:?}", &replica);
-        manager.cluster.add(replica);
+        app.cluster.add(replica);
     }
 
     let stdin = std::io::stdin();
 
-    shell::start(manager.clone(), stdin.lock(), std::io::stdout());
+    shell::start(app, stdin.lock(), std::io::stdout());
 
     loop {
         std::thread::park();

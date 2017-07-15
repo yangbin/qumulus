@@ -9,13 +9,14 @@ use std::hash::{Hash, Hasher};
 use std::io::ErrorKind;
 use std::io::prelude::*;
 use std::sync::{Arc, Mutex};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 
 use bincode;
 use threadpool::ThreadPool;
 
 use super::*;
+use app::App;
 use path::Path;
 use zone::{ZoneData, ZoneHandle};
 
@@ -24,7 +25,6 @@ const NUM_THREADS: usize = 50;
 pub struct FS {
     dir: std::path::PathBuf,
     rx: Receiver<StoreCall>,
-    tx: Sender<StoreCall>,
 
     read_pool: ThreadPool,
     write_pool: ThreadPool,
@@ -34,41 +34,31 @@ pub struct FS {
 
 impl FS {
     /// Start the Store "process".
-    pub fn spawn(dir: &str) -> StoreHandle {
+    pub fn spawn(app: &mut App) {
         // TODO: take serializer as parameter?
-
-        let store = FS::new(dir);
-        let handle = store.handle();
+        let dir = format!("data_{}", app.id);
+        let channel = app.channels.store.take().expect("Receiver already taken");
+        let store = FS::new(&dir, channel);
 
         thread::spawn(move|| {
             store.message_loop();
         });
-
-        handle
     }
 
-    pub fn new(dir: &str) -> FS {
+    pub fn new(dir: &str, channel: StoreChannel) -> FS {
         let dir = std::path::PathBuf::from(dir);
 
         if ! dir.is_dir() {
             DirBuilder::new().recursive(true).create(&dir).unwrap();
         }
 
-        let (tx, rx) = channel();
-
         FS {
             dir: dir,
-            tx: tx,
-            rx: rx,
+            rx: channel.rx,
             read_pool: ThreadPool::new(NUM_THREADS),
             write_pool: ThreadPool::new(NUM_THREADS),
             write_queue: Arc::new(Mutex::new(VecDeque::new()))
         }
-    }
-
-    /// Return a handle to Store "process".
-    fn handle(&self) -> StoreHandle {
-        StoreHandle { tx: self.tx.clone() }
     }
 
     fn message_loop(self) {
@@ -355,7 +345,8 @@ fn test_list() {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    let store = FS::new("test_data/list");
+    let chan = StoreChannel::new();
+    let store = FS::new("test_data/list", chan);
 
     let noop_zone = ZoneHandle::test_handle(Arc::new(path![]));
     let limit = bincode::Infinite;

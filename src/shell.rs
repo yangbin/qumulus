@@ -1,17 +1,17 @@
 use std::io::prelude::*;
 use std::process;
 
-use manager::ManagerHandle;
+use app::{App, AppHandle};
 use path::Path;
 
 struct Shell<W> {
-    manager: ManagerHandle,
+    app: AppHandle,
     writer: W
 }
 
-pub fn start<R: BufRead, W: Write>(manager: ManagerHandle, reader: R, writer: W) {
+pub fn start<R: BufRead, W: Write>(app: App, reader: R, writer: W) {
     let mut s = Shell {
-        manager: manager,
+        app: app.handle(),
         writer: writer
     };
 
@@ -34,6 +34,7 @@ impl<W: Write> Shell<W> {
                     Some("cluster.sync") => self.sync(),
                     Some("cluster.sync_all") => self.sync_all(),
                     Some("store.dump") => self.store_dump(line.next().unwrap_or_default()),
+                    Some("stats") => self.stats(),
                     Some("zone.dump") => self.zone_dump(line.next().unwrap_or_default()),
                     Some("zone.sync") => self.zone_sync(line.next().unwrap_or_default()),
                     Some("exit") | Some("quit") | Some("shutdown") => self.shutdown(),
@@ -48,7 +49,7 @@ impl<W: Write> Shell<W> {
     }
 
     fn active(&mut self) {
-        let active_zones = self.manager.list();
+        let active_zones = self.app.manager.list();
         let len = active_zones.len();
 
         writeln!(self.writer, "Active Zones:").unwrap();
@@ -71,14 +72,20 @@ impl<W: Write> Shell<W> {
         process::exit(0);
     }
 
+    fn stats(&mut self) {
+        use serde_json;
+
+        writeln!(self.writer, "{}", serde_json::to_string_pretty(&*self.app.stats).unwrap()).unwrap();
+    }
+
     fn sync(&mut self) {
         writeln!(self.writer, "Synchronizing local data with cluster...").unwrap();
-        self.manager.cluster.sync();
+        self.app.cluster.sync();
     }
 
     fn sync_all(&mut self) {
         writeln!(self.writer, "Synchronizing cluster data...").unwrap();
-        self.manager.cluster.sync_all();
+        self.app.cluster.sync_all();
     }
 
     fn store_dump(&mut self, path: &str) {
@@ -87,7 +94,7 @@ impl<W: Write> Shell<W> {
             _ => Path::new(path.split('.').map(|s| s.into()).collect())
         };
 
-        match self.manager.store.load_data(path.clone()) {
+        match self.app.store.load_data(path.clone()) {
             None => writeln!(self.writer, "Could not load {:?}", path),
             Some(data) => writeln!(self.writer, "Store data: {:?}", data)
         }.unwrap();
@@ -99,7 +106,7 @@ impl<W: Write> Shell<W> {
             _ => Path::new(path.split('.').map(|s| s.into()).collect())
         };
 
-        let zone = self.manager.load(&path);
+        let zone = self.app.manager.load(&path);
 
         let data = zone.dump();
 
@@ -113,6 +120,6 @@ impl<W: Write> Shell<W> {
         };
 
         writeln!(self.writer, "Synchronizing zone {:#?}...", &path).unwrap();
-        self.manager.cluster.sync_zone(path);
+        self.app.cluster.sync_zone(path);
     }
 }

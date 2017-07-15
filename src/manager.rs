@@ -8,21 +8,24 @@ use mioco;
 use mioco::sync::mpsc::{channel, Receiver, Sender};
 use rand;
 
-use cluster::{ClusterHandle,ClusterPreHandle};
+use app::{App, AppHandle};
 use listener::RListener;
 use node::External;
 use path::Path;
-use replica::Replica;
-use store::StoreHandle;
 use zone::{Zone, ZoneHandle};
 
 const MAX_LOADED_SOFT: usize = 600;
 const MAX_LOADED_HARD: usize = 800;
 
+/// A handle to the Manager process. This is the shareable public interface.
 #[derive(Clone)]
 pub struct ManagerHandle {
-    pub cluster: ClusterHandle,
-    pub store: StoreHandle,
+    tx: Sender<(Option<Sender<Box<Any + Send>>>, ManagerCall)>
+}
+
+/// Channel (both ends) to talk to Manager, `rx` needed to spawn Manager.
+pub struct ManagerChannel {
+    rx: Receiver<(Option<Sender<Box<Any + Send>>>, ManagerCall)>,
     tx: Sender<(Option<Sender<Box<Any + Send>>>, ManagerCall)>
 }
 
@@ -40,14 +43,12 @@ pub enum ManagerCall {
 }
 
 pub struct Manager {
-    cluster: ClusterHandle,
+    app: AppHandle,
     eviction: EvictionHandle,
-    store: StoreHandle,
     active: BTreeMap<Path, ZoneHandle>,
     loaded: usize,
     requesting_load: VecDeque<ZoneHandle>,
-    rx: Receiver<(Option<Sender<Box<Any + Send>>>, ManagerCall)>,
-    tx: Sender<(Option<Sender<Box<Any + Send>>>, ManagerCall)>
+    rx: Receiver<(Option<Sender<Box<Any + Send>>>, ManagerCall)>
 }
 
 impl ManagerHandle {
@@ -150,59 +151,46 @@ impl ManagerHandle {
     fn cast(&self, msg: ManagerCall) {
         self.tx.send((None, msg)).unwrap();
     }
+}
 
-    /// Creates a noop ManagerHandle for testing
-    #[cfg(test)]
-    pub fn test_handle() -> ManagerHandle {
-        ManagerHandle {
-            tx: channel().0,
-            cluster: ClusterHandle::test_handle(),
-            store: StoreHandle::test_handle()
-        }
+/// Represents both ends of a channel needed to talk to Manager.
+impl ManagerChannel {
+    pub fn new() -> ManagerChannel {
+        let (tx, rx) = channel();
+
+        ManagerChannel { rx: rx, tx: tx }
+    }
+
+    pub fn handle(&self) -> ManagerHandle {
+        ManagerHandle { tx: self.tx.clone() }
     }
 }
 
 impl Manager {
-    pub fn spawn(id: Replica, store: StoreHandle) -> ManagerHandle {
-        let cluster = ClusterPreHandle::new();
-        let manager = Manager::new(store, &cluster);
-        let handle = manager.handle();
+    pub fn spawn(app: &mut App) {
+        let manager = Manager::new(app);
 
         thread::spawn(move|| {
             mioco::start_threads(10, move|| {
                 manager.message_loop();
             }).unwrap();
         });
-
-        cluster.spawn(id, handle.clone());
-
-        handle
     }
 
-    pub fn new(store: StoreHandle, cluster: &ClusterPreHandle) -> Manager {
+    pub fn new(app: &mut App) -> Manager {
         let eviction = EvictionManager::spawn();
-        let (tx, rx) = channel();
+        let channel = app.channels.manager.take().expect("Receiver already taken");
 
         let manager = Manager {
-            cluster: cluster.handle.clone(),
+            app: app.handle(),
             eviction: eviction,
-            store: store,
             active: BTreeMap::new(),
             loaded: 0,
             requesting_load: VecDeque::new(),
-            tx: tx,
-            rx: rx
+            rx: channel.rx
         };
 
         manager
-    }
-
-    fn handle(&self) -> ManagerHandle {
-        ManagerHandle {
-            tx: self.tx.clone(),
-            cluster: self.cluster.clone(),
-            store: self.store.clone()
-        }
     }
 
     fn message_loop(mut self) {
@@ -232,7 +220,7 @@ impl Manager {
             return zone.clone();
         }
 
-        let zone = Zone::spawn(self.handle(), path);
+        let zone = Zone::spawn(self.app.clone(), path);
 
         self.active.insert(path.clone(), zone.clone());
 
@@ -352,7 +340,7 @@ impl EvictionManager {
         }
     }
 
-    /// Return a handle to Store "process".
+    /// Return a handle to EvictionManager "process".
     fn handle(&self) -> EvictionHandle {
         EvictionHandle { tx: self.tx.clone() }
     }
@@ -416,11 +404,14 @@ impl EvictionManager {
 
 #[test]
 fn test_find_nearest() {
-    use store;
+    use app;
 
-    let store = store::null::Null::spawn();
-    let cluster = ClusterPreHandle::new();
-    let mut manager = Manager::new(store, &cluster);
+    let id = "127.0.0.1:1000".parse().unwrap();
+    let mut app = app::App::new(id);
+
+    Manager::spawn(&mut app);
+
+    let manager = app.manager;
 
     let root        = Path::new(vec![]);
     let moo         = Path::new(vec!["moo".into()]);
@@ -445,13 +436,15 @@ fn test_find_nearest() {
 
 #[test]
 fn test_load() {
-    use store;
+    use app;
 
-    let store = store::null::Null::spawn();
-    let cluster = ClusterPreHandle::new();
-    let mut manager = Manager::new(store, &cluster);
+    let id = "127.0.0.1:1000".parse().unwrap();
+    let mut app = app::App::new(id);
+
+    Manager::spawn(&mut app);
+
     let root = Path::new(vec![]);
-    let zone = manager.load(&root);
+    let zone = app.manager.load(&root);
 
     assert!(zone.state().is_idle());
 }

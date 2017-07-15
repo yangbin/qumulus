@@ -10,16 +10,22 @@ pub mod null;
 
 use std::error::Error;
 use std::fmt;
-use std::sync::mpsc::{channel,Sender};
+use std::sync::mpsc::{channel, Receiver, Sender};
 
 use bincode;
 
 use path::Path;
 use zone::{ZoneData, ZoneHandle};
 
-/// A handle to the store process. This is the shareable public interface.
+/// A handle to the Store process. This is the shareable public interface.
 #[derive(Clone)]
 pub struct StoreHandle {
+    tx: Sender<StoreCall>
+}
+
+/// Channel (both ends) to talk to Store, `rx` needed to spawn Store.
+pub struct StoreChannel {
+    rx: Receiver<StoreCall>,
     tx: Sender<StoreCall>
 }
 
@@ -38,6 +44,18 @@ pub enum StoreError {
     ReadError(Box<Error>),
     OtherError(Box<Error>),
     WriteError(Box<Error>)
+}
+
+impl StoreChannel {
+    pub fn new() -> StoreChannel {
+        let (tx, rx) = channel();
+
+        StoreChannel { rx: rx, tx: tx }
+    }
+
+    pub fn handle(&self) -> StoreHandle {
+        StoreHandle { tx: self.tx.clone() }
+    }
 }
 
 impl StoreHandle {

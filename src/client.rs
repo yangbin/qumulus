@@ -14,29 +14,31 @@ use mioco;
 use serde_json;
 use serde_json::Value;
 
+use app::AppHandle;
 use command::Command;
-use manager::ManagerHandle;
 use node::{DelegatedMatch, Update};
 use path::Path;
 
 pub struct Client {
-    manager: ManagerHandle,
+    app: AppHandle,
     stream: TcpStream,
     tx: Sender<String>
 }
 
 impl Client {
     /// Creates a new `Client` from a `TcpStream`
-    pub fn new(manager: ManagerHandle, stream: TcpStream) {
+    pub fn new(app: AppHandle, stream: TcpStream) {
         let (tx, rx) = channel();
 
         let client = Client {
-            manager: manager,
+            app: app,
             stream: stream,
             tx: tx
         };
 
         mioco::spawn(move|| {
+            client.app.stats.clients.connects.increment();
+
             // Asynchronously write data to client
             client.create_writer_thread(rx);
 
@@ -44,6 +46,7 @@ impl Client {
             client.handle_stream();
 
             // end
+            client.app.stats.clients.disconnects.increment();
         });
     }
 
@@ -62,7 +65,7 @@ impl Client {
         // Pipeline up to 1000 commands at a time
         for _ in 0..1000 {
             let commands_rx = commands_rx.clone();
-            let manager = self.manager.clone();
+            let app = self.app.clone();
             let tx = self.tx.clone();
 
             mioco::spawn(move|| {
@@ -76,7 +79,7 @@ impl Client {
                         Err(_) => return
                     };
 
-                    process(&manager, &tx, command);
+                    process(&app, &tx, command);
                 }
             });
         }
@@ -129,15 +132,17 @@ impl Client {
 }
 
 /// Process a single command from client. Recursively dispatch for delegated zones.
-fn process(manager: &ManagerHandle, tx: &Sender<String>, mut command: Command) {
+fn process(app: &AppHandle, tx: &Sender<String>, mut command: Command) {
     let resolved_path = command.path.resolved();
-    let (prefix, zone) = manager.find_nearest(&resolved_path);
+    let (prefix, zone) = app.manager.find_nearest(&resolved_path);
 
     let c = Command {
         path: command.path.slice(prefix.len()),
         params: mem::replace(&mut command.params, Value::Null),
         ..command
     };
+
+    app.stats.clients.commands.increment(&c.call);
 
     let mut result = zone.dispatch(c, tx);
 
@@ -152,14 +157,14 @@ fn process(manager: &ManagerHandle, tx: &Sender<String>, mut command: Command) {
         queue.push_back(d);
     }
 
-    reply(tx, command.id, queue.len() as u64, &prefix, result.update);
+    reply(app, tx, command.id, queue.len() as u64, &prefix, result.update);
 
     if ! command.recursive() {
         return;
     }
 
     while let Some(delegated) = queue.pop_front() {
-        let zone = manager.load(&delegated.path);
+        let zone = app.manager.load(&delegated.path);
 
         let c = Command {
             path: delegated.match_spec,
@@ -177,10 +182,10 @@ fn process(manager: &ManagerHandle, tx: &Sender<String>, mut command: Command) {
             queue.push_back(d);
         }
 
-        reply(tx, command.id, queue.len() as u64, &delegated.path, result.update);
+        reply(app, tx, command.id, queue.len() as u64, &delegated.path, result.update);
     }
 
-    fn reply(tx: &Sender<String>, id: u64, left: u64, path: &Path, update: Option<Update>) {
+    fn reply(app: &AppHandle, tx: &Sender<String>, id: u64, left: u64, path: &Path, update: Option<Update>) {
         let response = vec![
             id.into(),
             left.into(),
@@ -188,7 +193,9 @@ fn process(manager: &ManagerHandle, tx: &Sender<String>, mut command: Command) {
             update.map_or(Value::Null, |u| u.to_json())
         ];
 
-        // TODO stop processing if unable to reply
+        app.stats.clients.replies.increment();
+
+        // TODO stop processing if unable to reply, otherwise we're just wasting cycles
         tx.send(serde_json::to_string(&response).unwrap()).unwrap_or_default();
     }
 }

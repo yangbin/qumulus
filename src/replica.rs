@@ -1,5 +1,6 @@
 //! Replica handling.
 
+use std::fmt;
 use std::net::{AddrParseError,SocketAddr};
 use std::str::FromStr;
 
@@ -25,6 +26,12 @@ impl Replica {
         addr.set_port(port);
 
         addr
+    }
+}
+
+impl fmt::Display for Replica {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.addr)
     }
 }
 

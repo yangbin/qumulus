@@ -12,11 +12,10 @@ use mioco;
 use mioco::sync::mpsc::{channel, Receiver, Sender};
 use serde_json::Value;
 
-use command::Command;
-use command::Call;
+use app::AppHandle;
+use command::{Call, Command};
 use delegate::delegate;
 use listener::{Listener, RListener};
-use manager::ManagerHandle;
 use node::{DelegatedMatch, Node, Update, Vis, NodeTree};
 use path::Path;
 
@@ -71,7 +70,9 @@ pub struct Zone {
     path: Arc<Path>,            // Path to this Zone
     data: ZoneData,             // 'Atomic' data for this Zone
     state: ZoneState,           // Current state of Zone
-    manager: ManagerHandle,     // Handle to manager
+
+    app: AppHandle,             // Handle to App (other process + stats)
+
     handle: ZoneHandle,         // Handle to zone
     rx: Receiver<ZoneCall>,     // Zone message inbox
     queued: VecDeque<ZoneCall>, // When Zone data is not active, queue up all commands
@@ -224,8 +225,8 @@ impl ZoneState {
 }
 
 impl Zone {
-    pub fn spawn(manager: ManagerHandle, path: &Path) -> ZoneHandle {
-        let zone = Zone::new(manager, path);
+    pub fn spawn(app: AppHandle, path: &Path) -> ZoneHandle {
+        let zone = Zone::new(app, path);
 
         let handle = zone.handle.clone();
 
@@ -236,7 +237,7 @@ impl Zone {
         handle
     }
 
-    pub fn new(manager: ManagerHandle, path: &Path) -> Zone {
+    pub fn new(app: AppHandle, path: &Path) -> Zone {
         let (tx, rx) = channel();
 
         let arc_path = Arc::new(path.clone());
@@ -254,7 +255,7 @@ impl Zone {
                 }
             },
             state: Default::default(),
-            manager: manager,
+            app: app,
             handle: ZoneHandle { path: arc_path, tx: tx },
             rx: rx,
             queued: VecDeque::new(),
@@ -288,7 +289,7 @@ impl Zone {
                         self.queued.push_back(call);
 
                         if self.state.is_idle() {
-                            self.manager.zone_request_load(self.handle.clone());
+                            self.app.manager.zone_request_load(self.handle.clone());
                             self.state.set(ZoneState::INIT);
                         }
                     }
@@ -425,16 +426,16 @@ impl Zone {
 
                 // Data meant for delegated node
                 if x_listeners.is_empty() {
-                    self.manager.send_external(&self.path, external, replicate);
+                    self.app.manager.send_external(&self.path, external, replicate);
                 }
                 else {
-                    self.manager.send_external_with_listeners(&self.path, external, x_listeners);
+                    self.app.manager.send_external_with_listeners(&self.path, external, x_listeners);
                 }
             }
         }
 
         if replicate && ! diff.node.is_noop() {
-            self.manager.cluster.replicate(&self.path, diff);
+            self.app.cluster.replicate(&self.path, diff);
         }
     }
 
@@ -481,7 +482,7 @@ impl Zone {
 
                 // Recursively propagate listeners-with-cached-data
                 if ! x_listeners.is_empty() {
-                    self.manager.send_external_with_listeners(&self.path, external, x_listeners);
+                    self.app.manager.send_external_with_listeners(&self.path, external, x_listeners);
                 }
             }
         }
@@ -511,7 +512,7 @@ impl Zone {
     /// Load data if not already loaded. Usually called by `Manager` when sufficient memory is available.
     pub fn load(&mut self) {
         if self.state.is_init() {
-            self.manager.store.load(&self.handle, &self.path);
+            self.app.store.load(&self.handle, &self.path);
             self.state.set(ZoneState::LOADING);
         }
         else {
@@ -539,17 +540,17 @@ impl Zone {
         if self.state.is_active() {
             self.state.set(ZoneState::IDLE);
             self.data.tree = Default::default();
-            self.manager.zone_hibernated(self.handle.clone());
+            self.app.manager.zone_hibernated(self.handle.clone());
         }
         else {
-            self.manager.zone_defer_hibernation(self.handle.clone());
+            self.app.manager.zone_defer_hibernation(self.handle.clone());
         }
     }
 
     /// Callback to notify Zone of available resources to persist dirty data.
     pub fn save(&mut self) {
         if self.state.is_dirty() {
-            self.manager.store.write(&self.handle, &self.path, &self.data);
+            self.app.store.write(&self.handle, &self.path, &self.data);
             self.state.set(ZoneState::WRITING);
         }
         else {
@@ -564,7 +565,7 @@ impl Zone {
         }
         else if self.state.is_dirty() {
             // Zone dirtied itself during a write
-            self.manager.store.request_write(&self.handle);
+            self.app.store.request_write(&self.handle);
         }
         else {
             unimplemented!();
@@ -606,7 +607,7 @@ impl Zone {
         }
 
         if self.state.is_active() {
-            self.manager.store.request_write(&self.handle);
+            self.app.store.request_write(&self.handle);
             self.state.set(ZoneState::DIRTY);
 
             return;

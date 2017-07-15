@@ -8,7 +8,7 @@ use std::thread::Builder;
 
 use bincode;
 
-use manager::ManagerHandle;
+use app::{App, AppHandle};
 use node::NodeTree;
 use path::Path;
 use replica::Replica;
@@ -19,18 +19,17 @@ pub struct ClusterHandle {
     tx: Sender<ClusterCall>
 }
 
-/// Cluster and Manger need handles to each other, so this is used before being upgraded to a
-/// ClusterHandle.
-pub struct ClusterPreHandle {
-    pub handle: ClusterHandle,
+/// Channel (both ends) to talk to Cluster, `rx` needed to spawn Cluster.
+pub struct ClusterChannel {
+    tx: Sender<ClusterCall>,
     rx: Receiver<ClusterCall>
 }
 
 /// The Cluster manager.
 pub struct Cluster {
-    id: Replica,
+    app: AppHandle,
     handle: ClusterHandle,
-    manager: ManagerHandle,
+    id: Replica,
     peers: HashMap<Replica, Peer>,
     replicas: Vec<Replica>,
     rx: Receiver<ClusterCall>
@@ -56,9 +55,6 @@ pub struct PeerState {
     pending: Option<Arc<ClusterMessage>>,
     stream: Option<TcpStream>,
     rx: Receiver<Arc<ClusterMessage>>
-}
-
-pub struct ServerHandle {
 }
 
 pub struct Server {
@@ -109,49 +105,42 @@ impl ClusterHandle {
     fn send(&self, call: ClusterCall) {
         self.tx.send(call).expect("Cluster process not running");
     }
-
-    /// Creates a noop ClusterHandle for testing
-    #[cfg(test)]
-    pub fn test_handle() -> ClusterHandle {
-        ClusterHandle {
-            tx: channel().0
-        }
-    }
 }
 
-/// Cluster and Manger need handles to each other.
-impl ClusterPreHandle {
-    pub fn new() -> ClusterPreHandle {
+/// Represents both ends of a channel needed to talk to Cluster.
+impl ClusterChannel {
+    pub fn new() -> ClusterChannel {
         let (tx, rx) = channel();
 
-        ClusterPreHandle {
-            handle: ClusterHandle {
-                tx: tx
-            },
-            rx: rx
-        }
+        ClusterChannel { rx: rx, tx: tx }
     }
 
-    /// Start the Cluster "process".
-    pub fn spawn(self, id: Replica, manager: ManagerHandle) {
-        let mut cluster = Cluster::new(self, id, manager);
-
-        thread("Cluster").spawn(move || {
-            cluster.run();
-        }).expect("Cluster spawn failed");
+    pub fn handle(&self) -> ClusterHandle {
+        ClusterHandle { tx: self.tx.clone() }
     }
 }
 
 impl Cluster {
-    pub fn new(handle: ClusterPreHandle, id: Replica, manager: ManagerHandle) -> Cluster {
+    pub fn new(app: &mut App) -> Cluster {
+        let rx =  app.channels.cluster.take().expect("Receiver already taken");
+
         Cluster {
-            handle: handle.handle,
-            id: id,
-            manager: manager,
+            app: app.handle(),
+            id: app.id.clone(),
+            handle: app.cluster.clone(),
             peers: HashMap::new(),
             replicas: vec![],
-            rx: handle.rx
+            rx: rx.rx
         }
+    }
+
+    /// Start the Cluster "process".
+    pub fn spawn(app: &mut App) {
+        let mut cluster = Cluster::new(app);
+
+        thread("Cluster").spawn(move || {
+            cluster.run();
+        }).expect("Cluster spawn failed");
     }
 
     pub fn run(&mut self) {
@@ -179,7 +168,7 @@ impl Cluster {
         match msg {
             ClusterMessage::Merge(path, data) => {
                 // TODO thread pool
-                let zone = self.manager.load(&path);
+                let zone = self.app.manager.load(&path);
 
                 zone.merge(data, false);
             },
@@ -218,8 +207,8 @@ impl Cluster {
 
     /// Synchronize each Zone to all Peers.
     pub fn sync(&self) {
-        self.manager.store.each_zone(|path| {
-            match self.manager.store.load_data(path.clone()) {
+        self.app.store.each_zone(|path| {
+            match self.app.store.load_data(path.clone()) {
                 None => println!("Could not sync {:?}", path),
                 Some(data) => self.replicate(path, data.tree)
             }
@@ -235,7 +224,7 @@ impl Cluster {
     /// Synchronize Zone to all Peers.
     pub fn sync_zone(&self, path: Path) {
         // TODO: does not check for non-existent Zones
-        match self.manager.store.load_data(path.clone()) {
+        match self.app.store.load_data(path.clone()) {
             None => println!("Could not sync {:?}", path),
             Some(data) => self.replicate(path, data.tree)
         }
@@ -391,12 +380,11 @@ fn test_cluster() {
         "127.0.0.1:1002".parse().unwrap()
     ];
 
-    use manager;
+    use app;
 
-    let manager = manager::ManagerHandle::test_handle();
-    let handle = ClusterPreHandle::new();
     let id = "127.0.0.1:1000".parse().unwrap();
-    let mut cluster = Cluster::new(handle, id, manager);
+    let mut app = app::App::new(id);
+    let mut cluster = Cluster::new(&mut app);
 
     cluster.add("127.0.0.1:1000".parse().unwrap());
     cluster.add("127.0.0.1:1001".parse().unwrap());
