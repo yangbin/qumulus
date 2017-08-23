@@ -27,6 +27,15 @@ impl Replica {
 
         addr
     }
+
+    pub fn monitor_addr(&self) -> SocketAddr {
+        let mut addr = self.addr.clone();
+        let port = addr.port() + 200;
+
+        addr.set_port(port);
+
+        addr
+    }
 }
 
 impl fmt::Display for Replica {

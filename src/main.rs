@@ -23,6 +23,7 @@ pub mod command;
 pub mod delegate;
 pub mod listener;
 pub mod manager;
+pub mod monitor;
 pub mod node;
 #[macro_use] pub mod path;
 pub mod replica;
@@ -63,6 +64,7 @@ fn main() {
     println!("Listening addresses:");
     println!("  API: {}", id.api_addr());
     println!("  Peer: {}", id.peer_addr());
+    println!("  Monitor: {}", id.monitor_addr());
 
     let server = server::Server::new(&app, id.api_addr());
     server.listen();
@@ -78,6 +80,8 @@ fn main() {
         println!("  {:?}", &replica);
         app.cluster.add(replica);
     }
+
+    monitor::Monitor::spawn(&app);
 
     let stdin = std::io::stdin();
 
