@@ -43,7 +43,7 @@ impl Monitor {
 
 impl Server {
     pub fn new(addr: &SocketAddr, app: AppHandle) -> Server {
-        println!("Monitor Listening on: {}", addr);
+        println!("Monitor listening on: {}", addr);
 
         let listener = TcpListener::bind(addr).expect("monitor::Server cannot bind");
 
@@ -60,7 +60,7 @@ impl Server {
             match stream {
                 Ok((stream, addr)) => {
                     // connection succeeded
-                    println!("Peer Connection from: {}", addr);
+                    println!("Monitor connection from: {}", addr);
 
                     self.handle(stream);
                 },
