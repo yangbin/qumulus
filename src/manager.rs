@@ -223,6 +223,7 @@ impl Manager {
         let zone = Zone::spawn(self.app.clone(), path);
 
         self.active.insert(path.clone(), zone.clone());
+        self.app.stats.zones.local_active.increment();
 
         zone
     }
@@ -265,11 +266,13 @@ impl Manager {
     pub fn zone_hibernated(&mut self, zone: ZoneHandle) {
         self.eviction.tx.send(EvictionCall::Unloaded(zone)).unwrap();
         self.loaded -= 1;
+        self.app.stats.zones.local_loaded.decrement();
 
         if let Some(zone) = self.requesting_load.pop_front() {
             zone.load();
             self.eviction.tx.send(EvictionCall::Loaded(zone)).unwrap();
             self.loaded += 1;
+            self.app.stats.zones.local_loaded.increment();
 
             if self.requesting_load.len() == 0 {
                 info!("Dropped below MAX_LOADED_HARD zones");
@@ -295,6 +298,7 @@ impl Manager {
             zone.load();
             self.eviction.tx.send(EvictionCall::Loaded(zone)).unwrap();
             self.loaded += 1;
+            self.app.stats.zones.local_loaded.increment();
         }
     }
 }

@@ -49,6 +49,7 @@ pub struct Channels {
 #[derive(Default, Serialize)]
 pub struct Stats {
     pub clients: ClientStats,
+    pub cluster: ClusterStats,
     pub store: StoreStats,
     pub zones: ZoneStats
 }
@@ -62,9 +63,21 @@ pub struct ClientStats {
 }
 
 #[derive(Default, Serialize)]
+pub struct ClusterStats {
+    pub broadcast: Stat,
+    pub handle_cluster_message: Stat,
+    pub replicas: Stat,
+    pub replicate: Stat
+}
+
+#[derive(Default, Serialize)]
 pub struct StoreStats {
-    pub read: Stat,
-    pub write: Stat
+    pub reads: Stat,
+    pub reads_pending: Stat,
+    pub reads_errors: Stat,
+    pub writes: Stat,
+    pub writes_pending: Stat,
+    pub writes_errors: Stat
 }
 
 #[derive(Default, Serialize)]
@@ -151,6 +164,10 @@ impl Stat {
 
     pub fn decrement(&self) {
         self.value.fetch_sub(1, Ordering::Relaxed);
+    }
+
+    pub fn set(&self, value: usize) {
+        self.value.store(value, Ordering::Relaxed);
     }
 
     pub fn value(&self) -> usize {
