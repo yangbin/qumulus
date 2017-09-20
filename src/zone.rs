@@ -133,7 +133,7 @@ impl ZoneHandle {
         self.tx.send(ZoneCall::Saved).unwrap();
     }
 
-    /// Get raw data of this `Zone`
+    /// Get raw data of this `Zone`.
     pub fn dump(&self) -> NodeTree {
         let (tx, rx) = channel();
 
@@ -141,7 +141,7 @@ impl ZoneHandle {
         rx.recv().unwrap()
     }
 
-    /// Get approximate storage size of this `Zone`
+    /// Get approximate storage size of this `Zone`.
     pub fn size(&self) -> usize {
         let (tx, rx) = channel();
 
@@ -149,7 +149,7 @@ impl ZoneHandle {
         rx.recv().unwrap()
     }
 
-    /// Gets current `ZoneState`
+    /// Gets current `ZoneState`.
     pub fn state(&self) -> ZoneState {
         let (tx, rx) = channel();
 

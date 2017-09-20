@@ -355,7 +355,7 @@ impl Server {
                 },
                 Err(e) => {
                     // connection failed
-                    println!("Connection error: {}", e);
+                    println!("Peer connection error: {}", e);
                 }
             }
         }
