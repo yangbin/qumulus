@@ -165,6 +165,8 @@ impl Cluster {
 
     /// Handles a message from the cluster.
     fn handle_cluster_message(&self, msg: ClusterMessage) {
+        self.app.stats.cluster.handle_cluster_message.increment();
+
         match msg {
             ClusterMessage::Merge(path, data) => {
                 // TODO thread pool
@@ -187,6 +189,7 @@ impl Cluster {
         }
 
         self.replicas.push(replica.clone());
+        self.app.stats.cluster.replicas.increment();
 
         let peer = Peer::spawn(replica.peer_addr());
 
@@ -196,6 +199,8 @@ impl Cluster {
 
     /// Replicates data to all replicas.
     pub fn replicate(&self, path: Path, data: NodeTree) {
+        self.app.stats.cluster.replicate.increment();
+
         // TODO: shard
         // for now, replicate to all replicas
         let message = Arc::new(ClusterMessage::Merge(path.clone(), data));
@@ -231,6 +236,8 @@ impl Cluster {
     }
 
     fn broadcast(&self, message: ClusterMessage) {
+        self.app.stats.cluster.broadcast.increment();
+
         let message = Arc::new(message);
 
         for (_addr, peer) in &self.peers {

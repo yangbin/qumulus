@@ -16,13 +16,15 @@ use bincode;
 use threadpool::ThreadPool;
 
 use super::*;
-use app::App;
+use app::{App, AppHandle};
 use path::Path;
 use zone::{ZoneData, ZoneHandle};
 
 const NUM_THREADS: usize = 50;
 
 pub struct FS {
+    app: AppHandle,
+
     dir: std::path::PathBuf,
     rx: Receiver<StoreCall>,
 
@@ -38,14 +40,14 @@ impl FS {
         // TODO: take serializer as parameter?
         let dir = format!("data_{}", app.id);
         let channel = app.channels.store.take().expect("Receiver already taken");
-        let store = FS::new(&dir, channel);
+        let store = FS::new(app.handle(), &dir, channel);
 
         thread::spawn(move|| {
             store.message_loop();
         });
     }
 
-    pub fn new(dir: &str, channel: StoreChannel) -> FS {
+    pub fn new(app: AppHandle, dir: &str, channel: StoreChannel) -> FS {
         let dir = std::path::PathBuf::from(dir);
 
         if ! dir.is_dir() {
@@ -53,6 +55,7 @@ impl FS {
         }
 
         FS {
+            app: app,
             dir: dir,
             rx: channel.rx,
             read_pool: ThreadPool::new(NUM_THREADS),
@@ -113,6 +116,10 @@ impl FS {
     pub fn load(&self, zone: ZoneHandle, path: Path) {
         let mut filepath = self.dir.clone();
 
+        self.app.stats.store.reads_pending.increment();
+
+        let stats = self.app.stats.clone();
+
         self.read_pool.execute(move|| {
             debug!("Loading: {:?}", path);
 
@@ -126,11 +133,15 @@ impl FS {
                 Err(err) => {
                     error!("Error loading {:?} - {}: {}", path, filepath.display(), err.description());
                     error!("{:?}", err);
+                    stats.store.reads_errors.increment();
                     // TODO: set Zone to error state
                     //zone.set_error(err);
                 },
                 Ok(node) => zone.loaded(node)
             };
+
+            stats.store.reads_pending.decrement();
+            stats.store.reads.increment();
         });
     }
 
@@ -169,6 +180,10 @@ impl FS {
 
         let pending = self.write_queue.clone();
 
+        self.app.stats.store.writes_pending.increment();
+
+        let stats = self.app.stats.clone();
+
         self.write_pool.execute(move|| {
             debug!("Writing: {:?}", path);
 
@@ -182,11 +197,15 @@ impl FS {
                 Err(err) => {
                     error!("Error writing {:?} - {}: {}", path, filepath.display(), err.description());
                     error!("{:?}", err);
+                    stats.store.writes_errors.increment();
                     // TODO set Zone to error state
                     //zone.set_error(err);
                 },
                 Ok(_) => zone.saved()
             };
+
+            stats.store.writes_pending.decrement();
+            stats.store.writes.increment();
 
             let mut pending = pending.lock().unwrap();
 
