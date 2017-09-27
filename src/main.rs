@@ -2,9 +2,6 @@
 
 #![recursion_limit="128"]
 
-#![feature(associated_consts)]
-#![feature(custom_derive)]
-
 extern crate bincode;
 extern crate env_logger;
 #[macro_use] extern crate log;
