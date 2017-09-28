@@ -309,7 +309,7 @@ impl PeerState {
                 Some(ref mut stream) => {
                     let limit = bincode::Infinite;
 
-                    match bincode::serialize_into(stream, &msg, limit) {
+                    match bincode::serialize_into(stream, &*msg, limit) {
                         Ok(_) => continue,
                         Err(e) => println!("Peer outgoing serialization failed: {}", e)
                     };

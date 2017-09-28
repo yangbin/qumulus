@@ -4,13 +4,13 @@ version = "0.1.0"
 authors = ["Kwok Yang Bin <yangbin@fragnetics.com>"]
 
 [dependencies]
-bincode = { git = "https://github.com/TyOverby/bincode.git" }
+bincode = "*"
 env_logger = "*"
 log = "*"
-mioco = { git = "https://github.com/dpc/mioco.git" }
+mioco = { git = "https://github.com/dpc/mioco.pre-0.9.git" }
 rand = "*"
-serde = "0.9"
-serde_derive = "0.9"
-serde_json = "0.9"
+serde = "*"
+serde_derive = "*"
+serde_json = "*"
 threadpool = "*"
 time = "*"
