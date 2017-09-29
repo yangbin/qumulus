@@ -365,7 +365,9 @@ fn test_list() {
     }
 
     let chan = StoreChannel::new();
-    let store = FS::new("test_data/list", chan);
+
+    let app = App::new("127.0.0.1:42".parse().unwrap());
+    let store = FS::new(app.handle(), "127.0.0.1:42", chan);
 
     let noop_zone = ZoneHandle::test_handle(Arc::new(path![]));
     let limit = bincode::Infinite;
