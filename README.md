@@ -1,5 +1,6 @@
 Qumulus
 =======
+![Build Status](https://travis-ci.org/yangbin/qumulus.svg?branch=master)
 
 An experiment in Rust to auto-partition a single large tree of data.
 
